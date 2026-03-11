@@ -7,6 +7,7 @@ export function initAudio(): void {
     ctx = new AudioContext();
   }
   // Browsers require a user gesture before resuming AudioContext
+  // This handles mobile Safari's suspended state
   if (ctx.state === 'suspended') {
     ctx.resume();
   }
@@ -41,34 +42,40 @@ export function playAudioEvent(event: AudioEvent): void {
   if (!ctx) return;
 
   switch (event) {
-    case 'beep':
-      tone(880, 0.12, 'square', 0.3);
+    case 'work-start':
+      // Aggressive: double punch of square waves — starting gun feel
+      tone(880, 0.07, 'square', 0.5, 0);
+      tone(1108, 0.10, 'square', 0.35, 0.06);
+      tone(880, 0.14, 'square', 0.2, 0.14);
+      break;
+
+    case 'rest-start':
+      // Calm: descending soft tones — signal to breathe
+      tone(660, 0.25, 'sine', 0.3, 0);
+      tone(440, 0.45, 'sine', 0.2, 0.15);
       break;
 
     case 'countdown-3':
-      tone(440, 0.18, 'sine', 0.25);
+      // Low, measured pulse
+      tone(330, 0.22, 'sine', 0.28);
       break;
 
     case 'countdown-2':
-      tone(440, 0.18, 'sine', 0.25);
+      // Mid tone
+      tone(440, 0.22, 'sine', 0.28);
       break;
 
     case 'countdown-1':
-      tone(660, 0.25, 'sine', 0.3);
-      break;
-
-    case 'round-complete':
-      // Two quick tones: medium + high
-      tone(660, 0.15, 'square', 0.3, 0);
-      tone(880, 0.2, 'square', 0.3, 0.18);
+      // High anticipation tone — longer to build tension
+      tone(550, 0.32, 'sine', 0.32);
       break;
 
     case 'workout-complete':
-      // Triumphant chord: C5-E5-G5
-      tone(523, 0.5, 'sine', 0.3, 0);
-      tone(659, 0.5, 'sine', 0.25, 0.05);
-      tone(784, 0.7, 'sine', 0.25, 0.1);
-      tone(1047, 0.9, 'sine', 0.2, 0.2);
+      // Triumphant ascending chord: C5–E5–G5–C6
+      tone(523, 0.55, 'sine', 0.3, 0);
+      tone(659, 0.55, 'sine', 0.25, 0.08);
+      tone(784, 0.75, 'sine', 0.25, 0.16);
+      tone(1047, 1.0, 'sine', 0.22, 0.28);
       break;
   }
 }

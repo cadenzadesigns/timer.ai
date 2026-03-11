@@ -29,7 +29,7 @@ function transitionFromCountdown(state: TimerState, newElapsed: number): TickRes
       secondsLeft: config.work,
       totalElapsed: newElapsed,
     },
-    audioEvents: ['beep'],
+    audioEvents: ['work-start'],
   };
 }
 
@@ -43,7 +43,7 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
       secondsLeft: config.rest,
       totalElapsed: newElapsed,
     },
-    audioEvents: ['round-complete'],
+    audioEvents: ['rest-start'],
   };
 }
 
@@ -74,7 +74,7 @@ function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
           secondsLeft: config.restBetweenSets,
           totalElapsed: newElapsed,
         },
-        audioEvents: ['beep'],
+        audioEvents: ['rest-start'],
       };
     }
     // No rest between sets — jump straight to next set
@@ -87,7 +87,7 @@ function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
         currentSet: state.currentSet + 1,
         totalElapsed: newElapsed,
       },
-      audioEvents: ['beep'],
+      audioEvents: ['work-start'],
     };
   }
 
@@ -100,7 +100,7 @@ function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
       currentRound: state.currentRound + 1,
       totalElapsed: newElapsed,
     },
-    audioEvents: ['beep'],
+    audioEvents: ['work-start'],
   };
 }
 
@@ -115,7 +115,7 @@ function transitionFromRestBetweenSets(state: TimerState, newElapsed: number): T
       currentSet: state.currentSet + 1,
       totalElapsed: newElapsed,
     },
-    audioEvents: ['beep'],
+    audioEvents: ['work-start'],
   };
 }
 
@@ -196,7 +196,7 @@ export function timerReducer(state: TimerState, action: TimerAction): TickResult
           totalElapsed: 0,
           paused: false,
         },
-        audioEvents: ['beep'],
+        audioEvents: ['work-start'],
       };
     }
 

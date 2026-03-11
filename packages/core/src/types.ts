@@ -35,11 +35,11 @@ export type TimerAction =
   | { type: 'RESET' };
 
 export type AudioEvent =
-  | 'beep'
+  | 'work-start'
+  | 'rest-start'
   | 'countdown-3'
   | 'countdown-2'
   | 'countdown-1'
-  | 'round-complete'
   | 'workout-complete';
 
 export interface TickResult {

@@ -50,7 +50,7 @@ describe('timerReducer', () => {
       const tick3 = timerReducer(tick2.state, { type: 'TICK' });
       expect(tick3.state.phase).toBe('WORK');
       expect(tick3.state.secondsLeft).toBe(20);
-      expect(tick3.audioEvents).toContain('beep');
+      expect(tick3.audioEvents).toContain('work-start');
     });
 
     it('enters WORK directly on single buzzer START', () => {
@@ -59,7 +59,7 @@ describe('timerReducer', () => {
       const started = timerReducer(configured.state, { type: 'START' });
 
       expect(started.state.phase).toBe('WORK');
-      expect(started.audioEvents).toContain('beep');
+      expect(started.audioEvents).toContain('work-start');
     });
   });
 
@@ -80,7 +80,7 @@ describe('timerReducer', () => {
         const afterWork = tickN(state, 20);
         expect(afterWork.state.phase).toBe('REST');
         expect(afterWork.state.currentRound).toBe(round);
-        expect(afterWork.events).toContain('round-complete');
+        expect(afterWork.events).toContain('rest-start');
 
         state = afterWork.state;
 
@@ -91,7 +91,7 @@ describe('timerReducer', () => {
         if (round < 8) {
           expect(state.phase).toBe('WORK');
           expect(state.currentRound).toBe(round + 1);
-          expect(afterRest.events).toContain('beep');
+          expect(afterRest.events).toContain('work-start');
         } else {
           expect(state.phase).toBe('COMPLETE');
           expect(afterRest.events).toContain('workout-complete');
@@ -126,7 +126,7 @@ describe('timerReducer', () => {
       expect(afterSetRest.state.phase).toBe('WORK');
       expect(afterSetRest.state.currentSet).toBe(2);
       expect(afterSetRest.state.currentRound).toBe(1);
-      expect(afterSetRest.events).toContain('beep');
+      expect(afterSetRest.events).toContain('work-start');
 
       state = afterSetRest.state;
 

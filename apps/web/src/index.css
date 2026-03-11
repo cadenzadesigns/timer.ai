@@ -25,17 +25,487 @@
   padding: 0;
 }
 
-html, body, #root {
+html {
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
+  width: 100%;
+  min-height: 100%;
   font-family: 'Share Tech Mono', monospace;
   background: #08080e;
   color: #ffffff;
   -webkit-font-smoothing: antialiased;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+/* ─── App shell ──────────────────────────────────────────────── */
+.app-shell {
+  position: relative;
+  min-height: 100dvh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ─── Scrollable content ─────────────────────────────────────── */
+.app-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 640px;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ─── Header ──────────────────────────────────────────────────── */
+.app-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 12px;
+}
+
+.app-brand {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.4em;
+  color: #2a2a38;
+  text-transform: uppercase;
+}
+
+.app-tagline {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #2a2a38;
+  letter-spacing: 0.1em;
+}
+
+/* ─── Input section ──────────────────────────────────────────── */
+.input-section {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+/* NL Input */
+.nl-input-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nl-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.nl-textarea {
+  flex: 1;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #ccccdd;
+  background: #0d0d16;
+  border: 1px solid #1e1e2e;
+  padding: 12px 14px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s ease;
+  min-height: 52px;
+  -webkit-appearance: none;
+}
+
+.nl-textarea::placeholder {
+  color: #2a2a40;
+  font-size: 12px;
+}
+
+.nl-textarea:focus {
+  border-color: #333355;
+}
+
+.nl-textarea:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nl-parse-btn {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  padding: 0 20px;
+  height: 52px;
+  min-width: 72px;
+  border: 1.5px solid #FF3300;
+  color: #FF3300;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nl-parse-btn:hover:not(:disabled) {
+  background: #FF3300;
+  color: #000;
+}
+
+.nl-parse-btn:disabled {
+  border-color: #2a2a3a;
+  color: #2a2a3a;
+  cursor: not-allowed;
+}
+
+.nl-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #FF330044;
+  border-top-color: #FF3300;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.nl-feedback {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 6px 10px;
+}
+
+.nl-error {
+  color: #FF6644;
+  border-left: 2px solid #FF3300;
+  background: rgba(255,51,0,0.06);
+}
+
+.nl-success {
+  color: #00CC88;
+  border-left: 2px solid #00FF88;
+  background: rgba(0,255,136,0.04);
+}
+
+/* Manual Config */
+.manual-config {
+  width: 100%;
+  border: 1px solid #1a1a26;
+  padding: 16px;
+  background: rgba(13,13,22,0.5);
+}
+
+.manual-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 16px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 360px) {
+  .manual-config-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.mc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: default;
+}
+
+.mc-label {
+  font-family: 'Syncopate', sans-serif;
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: #444455;
+}
+
+.mc-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mc-input {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 16px;
+  color: #ccccdd;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #222233;
+  padding: 2px 0;
+  width: 52px;
+  outline: none;
+  -moz-appearance: textfield;
+  -webkit-appearance: none;
+}
+
+.mc-input::-webkit-inner-spin-button,
+.mc-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+
+.mc-input:focus {
+  border-bottom-color: #444466;
+}
+
+.mc-unit {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: #333344;
+}
+
+.mc-select {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  color: #ccccdd;
+  background: #0d0d16;
+  border: 1px solid #222233;
+  padding: 2px 6px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+.mc-apply {
+  font-size: 9px;
+}
+
+/* ─── Timer section ──────────────────────────────────────────── */
+.timer-section {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.phase-label {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  min-height: 20px;
+  transition: color 0.3s ease;
+}
+
+/* ─── Timer ring ─────────────────────────────────────────────── */
+.ring-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-ring {
+  width: min(280px, calc(100vw - 80px));
+  height: min(280px, calc(100vw - 80px));
+}
+
+@media (min-width: 480px) {
+  .timer-ring {
+    width: 296px;
+    height: 296px;
+  }
+}
+
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-number {
+  font-family: 'Black Ops One', system-ui, sans-serif;
+  font-size: clamp(72px, 18vw, 96px);
+  line-height: 1;
+  color: #ffffff;
+  user-select: none;
+}
+
+@media (min-width: 480px) {
+  .timer-number {
+    font-size: 96px;
+  }
+}
+
+.round-label {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #444455;
+  margin-top: 4px;
+  letter-spacing: 0.05em;
+}
+
+/* ─── Config summary / Complete msg ──────────────────────────── */
+.config-summary {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #222233;
+  letter-spacing: 0.15em;
+  margin-top: 12px;
+  text-transform: uppercase;
+}
+
+.complete-msg {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  margin-top: 12px;
+}
+
+/* ─── Controls ───────────────────────────────────────────────── */
+.controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ctrl-btn {
+  min-width: 96px;
+  min-height: 48px;
+}
+
+/* ─── Presets section ────────────────────────────────────────── */
+.presets-section {
+  width: 100%;
+  margin-top: 32px;
+  border-top: 1px solid #14141e;
+  padding-top: 20px;
+}
+
+.presets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.presets-title {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.3em;
+  color: #333344;
+}
+
+.preset-save-btn {
+  font-size: 9px;
+  padding: 8px 14px;
+}
+
+.presets-loading,
+.presets-empty {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  color: #222233;
+  padding: 12px 0;
+}
+
+.presets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preset-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #1a1a26;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  background: rgba(13,13,22,0.3);
+  min-height: 56px;
+}
+
+.preset-card:hover {
+  border-color: #333355;
+  background: rgba(20,20,35,0.6);
+}
+
+.preset-card-inner {
+  flex: 1;
+  min-width: 0;
+}
+
+.preset-name {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  color: #888899;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.preset-detail {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: #333344;
+  letter-spacing: 0.05em;
+}
+
+.preset-delete {
+  font-size: 18px;
+  color: #2a2a3a;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.preset-delete:hover {
+  color: #FF3300;
+}
+
+/* ─── Radial glow ────────────────────────────────────────────── */
+.radial-glow {
+  position: fixed;
+  width: 500px;
+  height: 500px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 50%;
 }
 
 /* ─── Scanlines overlay ──────────────────────────────────────── */
@@ -47,8 +517,8 @@ body {
     0deg,
     transparent,
     transparent 3px,
-    rgba(0, 0, 0, 0.08) 3px,
-    rgba(0, 0, 0, 0.08) 4px
+    rgba(0, 0, 0, 0.07) 3px,
+    rgba(0, 0, 0, 0.07) 4px
   );
   pointer-events: none;
   z-index: 50;
@@ -65,60 +535,33 @@ body {
 }
 
 @keyframes phase-flash-anim {
-  0%   { opacity: 0.22; }
+  0%   { opacity: 0.18; }
   100% { opacity: 0; }
 }
 
 /* ─── Corner bracket decorations ────────────────────────────── */
-.corner-tl,
-.corner-tr,
-.corner-bl,
-.corner-br {
+.corner-tl, .corner-tr, .corner-bl, .corner-br {
   position: fixed;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   pointer-events: none;
   z-index: 10;
 }
 
-.corner-tl {
-  top: 20px;
-  left: 20px;
-  border-top: 1px solid #1e1e2a;
-  border-left: 1px solid #1e1e2a;
-}
-
-.corner-tr {
-  top: 20px;
-  right: 20px;
-  border-top: 1px solid #1e1e2a;
-  border-right: 1px solid #1e1e2a;
-}
-
-.corner-bl {
-  bottom: 20px;
-  left: 20px;
-  border-bottom: 1px solid #1e1e2a;
-  border-left: 1px solid #1e1e2a;
-}
-
-.corner-br {
-  bottom: 20px;
-  right: 20px;
-  border-bottom: 1px solid #1e1e2a;
-  border-right: 1px solid #1e1e2a;
-}
+.corner-tl { top: 16px; left: 16px; border-top: 1px solid #1a1a26; border-left: 1px solid #1a1a26; }
+.corner-tr { top: 16px; right: 16px; border-top: 1px solid #1a1a26; border-right: 1px solid #1a1a26; }
+.corner-bl { bottom: 16px; left: 16px; border-bottom: 1px solid #1a1a26; border-left: 1px solid #1a1a26; }
+.corner-br { bottom: 16px; right: 16px; border-bottom: 1px solid #1a1a26; border-right: 1px solid #1a1a26; }
 
 /* ─── Buttons ────────────────────────────────────────────────── */
 
-/* Primary: colored border + text, fills on hover */
 .btn-primary {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
-  padding: 12px 28px;
+  padding: 14px 28px;
   border: 1.5px solid var(--btn-color, #FF3300);
   color: var(--btn-color, #FF3300);
   background: transparent;
@@ -126,6 +569,8 @@ body {
   position: relative;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
   clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .btn-primary:hover {
@@ -138,20 +583,21 @@ body {
   transform: scale(0.97);
 }
 
-/* Secondary: muted style */
 .btn-secondary {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
-  padding: 12px 28px;
+  padding: 14px 28px;
   border: 1.5px solid #333344;
   color: #888899;
   background: transparent;
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease;
   clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .btn-secondary:hover {
@@ -163,7 +609,6 @@ body {
   transform: scale(0.97);
 }
 
-/* Ghost: minimal */
 .btn-ghost {
   font-family: 'Syncopate', sans-serif;
   font-weight: 400;
@@ -177,6 +622,8 @@ body {
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease;
   clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .btn-ghost:hover {
