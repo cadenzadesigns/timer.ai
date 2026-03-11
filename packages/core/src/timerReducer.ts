@@ -51,11 +51,10 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
     };
   }
 
-  // If no rest period, skip REST and go to next round/set (with countdown if enabled)
+  // If no rest period, skip REST and go straight to next work (no countdown between back-to-back rounds)
   if (config.rest === 0) {
-    // Infinite mode: just keep incrementing rounds
     if (config.infinite) {
-      return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
+      return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet, true);
     }
     if (isLastRound) {
       if (config.restBetweenSets > 0) {
@@ -69,9 +68,9 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
           audioEvents: ['rest-start'],
         };
       }
-      return transitionToWork(state, newElapsed, 1, state.currentSet + 1);
+      return transitionToWork(state, newElapsed, 1, state.currentSet + 1, true);
     }
-    return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
+    return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet, true);
   }
 
   // Normal: transition to REST
@@ -86,10 +85,10 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
   };
 }
 
-/** Helper: transition to WORK phase, inserting COUNTDOWN if config says 3-2-1 */
-function transitionToWork(state: TimerState, newElapsed: number, round: number, set: number): TickResult {
+/** Helper: transition to WORK phase, inserting COUNTDOWN if config says 3-2-1 and skipCountdown is false */
+function transitionToWork(state: TimerState, newElapsed: number, round: number, set: number, skipCountdown = false): TickResult {
   const config = state.config!;
-  if (config.countdown === '3-2-1') {
+  if (config.countdown === '3-2-1' && !skipCountdown) {
     return {
       state: {
         ...state,

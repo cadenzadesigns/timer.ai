@@ -1,27 +1,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 
-export const parseWorkout = action({
-  args: {
-    description: v.string(),
-  },
-  handler: async (_ctx, args) => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY environment variable not set — set it via `npx convex env set ANTHROPIC_API_KEY <key>`");
-    }
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 512,
-        system: `You are a fitness timer configuration parser. Parse natural language workout descriptions into a JSON timer config.
+const SYSTEM_PROMPT = `You are a fitness timer configuration parser. Parse natural language workout descriptions into a JSON timer config.
 
 Output ONLY valid JSON — no markdown, no explanation, no code blocks:
 {"work":<seconds>,"rest":<seconds>,"rounds":<number>,"sets":<number>,"restBetweenSets":<seconds>,"countdown":"3-2-1"|"single","infinite":<boolean>}
@@ -39,24 +19,52 @@ Rules:
 - Default infinite = false
 - Minimum work = 5s, minimum rest = 0s
 - Maximum rounds = 100, maximum sets = 20
-- If the user mentions a specific total workout duration (e.g. "10 minutes", "20 min", "half hour", "for 15 minutes"), also include "requestedTotalSeconds":<number>. If no total duration is mentioned, omit this field entirely.`,
-        messages: [{ role: "user", content: args.description }],
+- If the user mentions a specific total workout duration (e.g. "10 minutes", "20 min", "half hour", "for 15 minutes"), also include "requestedTotalSeconds":<number>. If no total duration is mentioned, omit this field entirely.`;
+
+export const parseWorkout = action({
+  args: {
+    description: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error("OPENAI_API_KEY environment variable not set — set it via `npx convex env set OPENAI_API_KEY <key>`");
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4.1-nano",
+        max_tokens: 512,
+        temperature: 0,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: args.description },
+        ],
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Anthropic API error: ${response.status} ${errText}`);
+      throw new Error(`OpenAI API error: ${response.status} ${errText}`);
     }
 
-    const data = await response.json() as { content: Array<{ type: string; text?: string }> };
-    const text = data.content[0]?.type === "text" ? data.content[0].text ?? "" : "";
+    const data = await response.json() as {
+      choices: Array<{ message: { content: string } }>;
+    };
+    const text = data.choices[0]?.message?.content ?? "";
 
     let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(text.trim());
+      // Strip markdown code blocks if present
+      const cleaned = text.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+      parsed = JSON.parse(cleaned);
     } catch {
-      throw new Error(`Claude returned unparseable response: ${text}`);
+      throw new Error(`LLM returned unparseable response: ${text}`);
     }
 
     // Validate and sanitize — use nullish coalescing (??) not || to preserve 0 values
