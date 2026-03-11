@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/* ─── Google Fonts ─────────────────────────────────────────── */
+/* Loaded via index.html link tags for performance */
+
+/* ─── Custom font utilities ─────────────────────────────────── */
+@layer utilities {
+  .font-display {
+    font-family: 'Black Ops One', system-ui, sans-serif;
+  }
+  .font-label {
+    font-family: 'Syncopate', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+  }
+  .font-mono {
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+  }
+}
+
+/* ─── Base reset ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Share Tech Mono', monospace;
+  background: #08080e;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scanlines overlay ──────────────────────────────────────── */
+.scanlines::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.08) 3px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* ─── Phase flash overlay ────────────────────────────────────── */
+.phase-flash {
+  position: fixed;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 40;
+  animation: phase-flash-anim 0.45s ease-out forwards;
+}
+
+@keyframes phase-flash-anim {
+  0%   { opacity: 0.22; }
+  100% { opacity: 0; }
+}
+
+/* ─── Corner bracket decorations ────────────────────────────── */
+.corner-tl,
+.corner-tr,
+.corner-bl,
+.corner-br {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.corner-tl {
+  top: 20px;
+  left: 20px;
+  border-top: 1px solid #1e1e2a;
+  border-left: 1px solid #1e1e2a;
+}
+
+.corner-tr {
+  top: 20px;
+  right: 20px;
+  border-top: 1px solid #1e1e2a;
+  border-right: 1px solid #1e1e2a;
+}
+
+.corner-bl {
+  bottom: 20px;
+  left: 20px;
+  border-bottom: 1px solid #1e1e2a;
+  border-left: 1px solid #1e1e2a;
+}
+
+.corner-br {
+  bottom: 20px;
+  right: 20px;
+  border-bottom: 1px solid #1e1e2a;
+  border-right: 1px solid #1e1e2a;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────── */
+
+/* Primary: colored border + text, fills on hover */
+.btn-primary {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  padding: 12px 28px;
+  border: 1.5px solid var(--btn-color, #FF3300);
+  color: var(--btn-color, #FF3300);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+}
+
+.btn-primary:hover {
+  background: var(--btn-color, #FF3300);
+  color: #000000;
+  box-shadow: 0 0 20px var(--btn-color, #FF3300), 0 0 40px var(--btn-color, #FF3300)44;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* Secondary: muted style */
+.btn-secondary {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  padding: 12px 28px;
+  border: 1.5px solid #333344;
+  color: #888899;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+}
+
+.btn-secondary:hover {
+  border-color: #888899;
+  color: #ccccdd;
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+/* Ghost: minimal */
+.btn-ghost {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 400;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 12px 20px;
+  border: 1px solid #1e1e2a;
+  color: #333344;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+}
+
+.btn-ghost:hover {
+  border-color: #333344;
+  color: #666677;
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@timer-ai/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'No build needed - consumed as TypeScript source'",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

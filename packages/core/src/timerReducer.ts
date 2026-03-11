@@ -1,0 +1,228 @@
+import type {
+  TimerState,
+  TimerAction,
+  TickResult,
+  AudioEvent,
+  TimerConfig,
+} from './types.js';
+
+export const initialTimerState: TimerState = {
+  phase: 'IDLE',
+  secondsLeft: 0,
+  currentRound: 1,
+  currentSet: 1,
+  totalElapsed: 0,
+  config: null,
+  paused: false,
+};
+
+function noop(state: TimerState): TickResult {
+  return { state, audioEvents: [] };
+}
+
+function transitionFromCountdown(state: TimerState, newElapsed: number): TickResult {
+  const config = state.config!;
+  return {
+    state: {
+      ...state,
+      phase: 'WORK',
+      secondsLeft: config.work,
+      totalElapsed: newElapsed,
+    },
+    audioEvents: ['beep'],
+  };
+}
+
+function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
+  const config = state.config!;
+  // WORK always transitions to REST — REST handles set/complete logic
+  return {
+    state: {
+      ...state,
+      phase: 'REST',
+      secondsLeft: config.rest,
+      totalElapsed: newElapsed,
+    },
+    audioEvents: ['round-complete'],
+  };
+}
+
+function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
+  const config = state.config!;
+  const isLastRound = state.currentRound >= config.rounds;
+  const isLastSet = state.currentSet >= config.sets;
+
+  if (isLastRound && isLastSet) {
+    return {
+      state: {
+        ...state,
+        phase: 'COMPLETE',
+        secondsLeft: 0,
+        totalElapsed: newElapsed,
+      },
+      audioEvents: ['workout-complete'],
+    };
+  }
+
+  if (isLastRound) {
+    // Last round of a non-last set — rest between sets (if any)
+    if (config.restBetweenSets > 0) {
+      return {
+        state: {
+          ...state,
+          phase: 'REST_BETWEEN_SETS',
+          secondsLeft: config.restBetweenSets,
+          totalElapsed: newElapsed,
+        },
+        audioEvents: ['beep'],
+      };
+    }
+    // No rest between sets — jump straight to next set
+    return {
+      state: {
+        ...state,
+        phase: 'WORK',
+        secondsLeft: config.work,
+        currentRound: 1,
+        currentSet: state.currentSet + 1,
+        totalElapsed: newElapsed,
+      },
+      audioEvents: ['beep'],
+    };
+  }
+
+  // Normal round transition
+  return {
+    state: {
+      ...state,
+      phase: 'WORK',
+      secondsLeft: config.work,
+      currentRound: state.currentRound + 1,
+      totalElapsed: newElapsed,
+    },
+    audioEvents: ['beep'],
+  };
+}
+
+function transitionFromRestBetweenSets(state: TimerState, newElapsed: number): TickResult {
+  const config = state.config!;
+  return {
+    state: {
+      ...state,
+      phase: 'WORK',
+      secondsLeft: config.work,
+      currentRound: 1,
+      currentSet: state.currentSet + 1,
+      totalElapsed: newElapsed,
+    },
+    audioEvents: ['beep'],
+  };
+}
+
+function handleTick(state: TimerState): TickResult {
+  if (state.paused || state.phase === 'IDLE' || state.phase === 'COMPLETE') {
+    return noop(state);
+  }
+
+  const newElapsed = state.totalElapsed + 1;
+
+  // Not at transition point yet — just decrement
+  if (state.secondsLeft > 1) {
+    const newSecondsLeft = state.secondsLeft - 1;
+    const audioEvents: AudioEvent[] = [];
+
+    // Emit countdown audio based on the new value we're showing
+    if (state.phase === 'COUNTDOWN') {
+      if (newSecondsLeft === 2) audioEvents.push('countdown-2');
+      else if (newSecondsLeft === 1) audioEvents.push('countdown-1');
+    }
+
+    return {
+      state: { ...state, secondsLeft: newSecondsLeft, totalElapsed: newElapsed },
+      audioEvents,
+    };
+  }
+
+  // secondsLeft === 1 — transition to next phase
+  switch (state.phase) {
+    case 'COUNTDOWN':
+      return transitionFromCountdown(state, newElapsed);
+    case 'WORK':
+      return transitionFromWork(state, newElapsed);
+    case 'REST':
+      return transitionFromRest(state, newElapsed);
+    case 'REST_BETWEEN_SETS':
+      return transitionFromRestBetweenSets(state, newElapsed);
+    default:
+      return noop(state);
+  }
+}
+
+export function timerReducer(state: TimerState, action: TimerAction): TickResult {
+  switch (action.type) {
+    case 'CONFIGURE': {
+      return {
+        state: {
+          ...initialTimerState,
+          config: action.config,
+        },
+        audioEvents: [],
+      };
+    }
+
+    case 'START': {
+      if (!state.config) return noop(state);
+      if (state.config.countdown === '3-2-1') {
+        return {
+          state: {
+            ...state,
+            phase: 'COUNTDOWN',
+            secondsLeft: 3,
+            currentRound: 1,
+            currentSet: 1,
+            totalElapsed: 0,
+            paused: false,
+          },
+          audioEvents: ['countdown-3'],
+        };
+      }
+      return {
+        state: {
+          ...state,
+          phase: 'WORK',
+          secondsLeft: state.config.work,
+          currentRound: 1,
+          currentSet: 1,
+          totalElapsed: 0,
+          paused: false,
+        },
+        audioEvents: ['beep'],
+      };
+    }
+
+    case 'TICK':
+      return handleTick(state);
+
+    case 'PAUSE': {
+      if (state.phase === 'IDLE' || state.phase === 'COMPLETE') return noop(state);
+      return { state: { ...state, paused: true }, audioEvents: [] };
+    }
+
+    case 'RESUME': {
+      return { state: { ...state, paused: false }, audioEvents: [] };
+    }
+
+    case 'RESET': {
+      return {
+        state: {
+          ...initialTimerState,
+          config: state.config,
+        },
+        audioEvents: [],
+      };
+    }
+
+    default:
+      return noop(state);
+  }
+}
