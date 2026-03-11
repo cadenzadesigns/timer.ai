@@ -153,7 +153,7 @@ export function NLInput({ onConfig, disabled }: Props) {
 
   const showMismatch = parsed && !parsed.dismissedWarning
     && parsed.requestedTotalSeconds != null
-    && Math.abs(computeTotal(parsed) - parsed.requestedTotalSeconds) > 5;
+    && Math.abs(computeTotal(parsed) - parsed.requestedTotalSeconds) >= 3;
 
   return (
     <div className="nl-input-wrapper">
