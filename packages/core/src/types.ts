@@ -5,7 +5,8 @@ export interface TimerConfig {
   sets: number;
   restBetweenSets: number; // seconds, default 0
   countdown: '3-2-1' | 'single';
-  totalSeconds: number;   // derived: (work + rest) * rounds * sets + restBetweenSets * (sets - 1)
+  totalSeconds: number;   // derived: (work + rest) * rounds * sets + restBetweenSets * (sets - 1). -1 if infinite.
+  infinite: boolean;      // loop forever until manually stopped
 }
 
 export type TimerPhase =
@@ -53,7 +54,8 @@ export function makeTimerConfig(
   rounds: number,
   sets: number,
   restBetweenSets = 0,
-  countdown: '3-2-1' | 'single' = '3-2-1'
+  countdown: '3-2-1' | 'single' = '3-2-1',
+  infinite = false
 ): TimerConfig {
   return {
     work,
@@ -62,6 +64,7 @@ export function makeTimerConfig(
     sets,
     restBetweenSets,
     countdown,
-    totalSeconds: (work + rest) * rounds * sets + restBetweenSets * (sets - 1),
+    infinite,
+    totalSeconds: infinite ? -1 : (work + rest) * rounds * sets + restBetweenSets * (sets - 1),
   };
 }

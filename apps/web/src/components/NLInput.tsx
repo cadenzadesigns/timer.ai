@@ -126,7 +126,7 @@ export function NLInput({ onConfig, disabled }: Props) {
   }
 
   function applyDrafts(p: ParsedResult, work: number, rest: number, rounds: number) {
-    const newConfig = makeTimerConfig(work, rest, rounds, p.config.sets, p.config.restBetweenSets, p.config.countdown);
+    const newConfig = makeTimerConfig(work, rest, rounds, p.config.sets, p.config.restBetweenSets, p.config.countdown, p.config.infinite);
     onConfig(newConfig);
   }
 
@@ -203,14 +203,18 @@ export function NLInput({ onConfig, disabled }: Props) {
               min={0} max={3600}
             />
             <span className="chip-dot">·</span>
-            <EditableChip
-              value={parsed.rounds} label="RDS"
-              editing={editingField === 'rounds'}
-              onTap={() => setEditingField('rounds')}
-              onChange={v => updateField('rounds', v)}
-              onBlur={() => setEditingField(null)}
-              min={1} max={100}
-            />
+            {parsed.config.infinite ? (
+              <span className="chip-static">∞ LOOP</span>
+            ) : (
+              <EditableChip
+                value={parsed.rounds} label="RDS"
+                editing={editingField === 'rounds'}
+                onTap={() => setEditingField('rounds')}
+                onChange={v => updateField('rounds', v)}
+                onBlur={() => setEditingField(null)}
+                min={1} max={100}
+              />
+            )}
             {parsed.config.sets > 1 && (
               <>
                 <span className="chip-dot">·</span>
@@ -222,7 +226,9 @@ export function NLInput({ onConfig, disabled }: Props) {
           {/* Total time */}
           <div className="nl-total">
             <span className="nl-total-label">TOTAL</span>
-            <span className="nl-total-value">{formatTotal(computeTotal(parsed))}</span>
+            <span className="nl-total-value">
+              {parsed.config.infinite ? '∞ until stopped' : formatTotal(computeTotal(parsed))}
+            </span>
           </div>
 
           {/* Mismatch warning */}

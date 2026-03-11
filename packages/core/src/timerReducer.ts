@@ -35,8 +35,8 @@ function transitionFromCountdown(state: TimerState, newElapsed: number): TickRes
 
 function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
   const config = state.config!;
-  const isLastRound = state.currentRound >= config.rounds;
-  const isLastSet = state.currentSet >= config.sets;
+  const isLastRound = !config.infinite && state.currentRound >= config.rounds;
+  const isLastSet = !config.infinite && state.currentSet >= config.sets;
 
   // If last round of last set and no rest, go straight to complete
   if (isLastRound && isLastSet && config.rest === 0) {
@@ -53,8 +53,11 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
 
   // If no rest period, skip REST and go to next round/set (with countdown if enabled)
   if (config.rest === 0) {
+    // Infinite mode: just keep incrementing rounds
+    if (config.infinite) {
+      return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
+    }
     if (isLastRound) {
-      // Last round, not last set — rest between sets or next set
       if (config.restBetweenSets > 0) {
         return {
           state: {
@@ -114,6 +117,12 @@ function transitionToWork(state: TimerState, newElapsed: number, round: number, 
 
 function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
   const config = state.config!;
+
+  // Infinite mode: just keep going
+  if (config.infinite) {
+    return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
+  }
+
   const isLastRound = state.currentRound >= config.rounds;
   const isLastSet = state.currentSet >= config.sets;
 

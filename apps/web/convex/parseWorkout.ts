@@ -24,7 +24,7 @@ export const parseWorkout = action({
         system: `You are a fitness timer configuration parser. Parse natural language workout descriptions into a JSON timer config.
 
 Output ONLY valid JSON — no markdown, no explanation, no code blocks:
-{"work":<seconds>,"rest":<seconds>,"rounds":<number>,"sets":<number>,"restBetweenSets":<seconds>,"countdown":"3-2-1"|"single"}
+{"work":<seconds>,"rest":<seconds>,"rounds":<number>,"sets":<number>,"restBetweenSets":<seconds>,"countdown":"3-2-1"|"single","infinite":<boolean>}
 
 Rules:
 - Parse EXACTLY what the user says. Do NOT add defaults the user didn't ask for.
@@ -34,7 +34,9 @@ Rules:
 - Only use these presets when the user explicitly names them:
   - "Tabata" = 20s work, 10s rest, 8 rounds, 1 set
   - "EMOM X min" = 60s work, 0s rest, X rounds, 1 set
+- If the user says "every X seconds", "repeat", "until I stop", "go until stopped", "loop", "continuous", or doesn't specify rounds, set "infinite":true and "rounds":1
 - Default countdown = "3-2-1"
+- Default infinite = false
 - Minimum work = 5s, minimum rest = 0s
 - Maximum rounds = 100, maximum sets = 20
 - If the user mentions a specific total workout duration (e.g. "10 minutes", "20 min", "half hour", "for 15 minutes"), also include "requestedTotalSeconds":<number>. If no total duration is mentioned, omit this field entirely.`,
@@ -64,6 +66,7 @@ Rules:
     const sets = Math.max(1, Math.min(20, Number(parsed.sets ?? 1)));
     const restBetweenSets = Math.max(0, Math.min(3600, Number(parsed.restBetweenSets ?? 0)));
     const countdown = parsed.countdown === "single" ? "single" : "3-2-1";
+    const infinite = parsed.infinite === true;
     const requestedTotalSeconds = parsed.requestedTotalSeconds != null
       ? Math.max(1, Math.min(7200, Number(parsed.requestedTotalSeconds)))
       : undefined;
@@ -75,7 +78,8 @@ Rules:
       sets,
       restBetweenSets,
       countdown: countdown as "3-2-1" | "single",
-      totalSeconds:
+      infinite,
+      totalSeconds: infinite ? -1 :
         (work + rest) * rounds * sets + restBetweenSets * Math.max(0, sets - 1),
       ...(requestedTotalSeconds !== undefined ? { requestedTotalSeconds } : {}),
     };

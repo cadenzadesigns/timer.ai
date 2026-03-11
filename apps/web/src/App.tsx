@@ -470,8 +470,8 @@ export default function App({ convexEnabled = false }: AppProps) {
 
               {!isIdle && !isComplete && (
                 <div className="round-label">
-                  R{currentRound}/{config.rounds}
-                  {config.sets > 1 && ` · S${currentSet}/${config.sets}`}
+                  {config.infinite ? `R${currentRound}` : `R${currentRound}/${config.rounds}`}
+                  {!config.infinite && config.sets > 1 && ` · S${currentSet}/${config.sets}`}
                 </div>
               )}
             </div>
@@ -480,7 +480,7 @@ export default function App({ convexEnabled = false }: AppProps) {
           {/* Config summary (idle) */}
           {isIdle && (
             <div className="config-summary">
-              {config.work}s · {config.rest}s · {config.rounds}R
+              {config.work}s · {config.rest}s · {config.infinite ? '∞' : config.rounds + 'R'}
               {config.sets > 1 && ` · ${config.sets} SETS`}
             </div>
           )}
