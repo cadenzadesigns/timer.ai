@@ -35,7 +35,43 @@ function transitionFromCountdown(state: TimerState, newElapsed: number): TickRes
 
 function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
   const config = state.config!;
-  // WORK always transitions to REST — REST handles set/complete logic
+  const isLastRound = state.currentRound >= config.rounds;
+  const isLastSet = state.currentSet >= config.sets;
+
+  // If last round of last set and no rest, go straight to complete
+  if (isLastRound && isLastSet && config.rest === 0) {
+    return {
+      state: {
+        ...state,
+        phase: 'COMPLETE',
+        secondsLeft: 0,
+        totalElapsed: newElapsed,
+      },
+      audioEvents: ['workout-complete'],
+    };
+  }
+
+  // If no rest period, skip REST and go to next round/set (with countdown if enabled)
+  if (config.rest === 0) {
+    if (isLastRound) {
+      // Last round, not last set — rest between sets or next set
+      if (config.restBetweenSets > 0) {
+        return {
+          state: {
+            ...state,
+            phase: 'REST_BETWEEN_SETS',
+            secondsLeft: config.restBetweenSets,
+            totalElapsed: newElapsed,
+          },
+          audioEvents: ['rest-start'],
+        };
+      }
+      return transitionToWork(state, newElapsed, 1, state.currentSet + 1);
+    }
+    return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
+  }
+
+  // Normal: transition to REST
   return {
     state: {
       ...state,
@@ -44,6 +80,35 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
       totalElapsed: newElapsed,
     },
     audioEvents: ['rest-start'],
+  };
+}
+
+/** Helper: transition to WORK phase, inserting COUNTDOWN if config says 3-2-1 */
+function transitionToWork(state: TimerState, newElapsed: number, round: number, set: number): TickResult {
+  const config = state.config!;
+  if (config.countdown === '3-2-1') {
+    return {
+      state: {
+        ...state,
+        phase: 'COUNTDOWN',
+        secondsLeft: 3,
+        currentRound: round,
+        currentSet: set,
+        totalElapsed: newElapsed,
+      },
+      audioEvents: ['countdown-3'],
+    };
+  }
+  return {
+    state: {
+      ...state,
+      phase: 'WORK',
+      secondsLeft: config.work,
+      currentRound: round,
+      currentSet: set,
+      totalElapsed: newElapsed,
+    },
+    audioEvents: ['work-start'],
   };
 }
 
@@ -65,7 +130,6 @@ function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
   }
 
   if (isLastRound) {
-    // Last round of a non-last set — rest between sets (if any)
     if (config.restBetweenSets > 0) {
       return {
         state: {
@@ -77,46 +141,15 @@ function transitionFromRest(state: TimerState, newElapsed: number): TickResult {
         audioEvents: ['rest-start'],
       };
     }
-    // No rest between sets — jump straight to next set
-    return {
-      state: {
-        ...state,
-        phase: 'WORK',
-        secondsLeft: config.work,
-        currentRound: 1,
-        currentSet: state.currentSet + 1,
-        totalElapsed: newElapsed,
-      },
-      audioEvents: ['work-start'],
-    };
+    return transitionToWork(state, newElapsed, 1, state.currentSet + 1);
   }
 
   // Normal round transition
-  return {
-    state: {
-      ...state,
-      phase: 'WORK',
-      secondsLeft: config.work,
-      currentRound: state.currentRound + 1,
-      totalElapsed: newElapsed,
-    },
-    audioEvents: ['work-start'],
-  };
+  return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
 }
 
 function transitionFromRestBetweenSets(state: TimerState, newElapsed: number): TickResult {
-  const config = state.config!;
-  return {
-    state: {
-      ...state,
-      phase: 'WORK',
-      secondsLeft: config.work,
-      currentRound: 1,
-      currentSet: state.currentSet + 1,
-      totalElapsed: newElapsed,
-    },
-    audioEvents: ['work-start'],
-  };
+  return transitionToWork(state, newElapsed, 1, state.currentSet + 1);
 }
 
 function handleTick(state: TimerState): TickResult {

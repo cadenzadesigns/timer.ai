@@ -1,12 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-export function useWakeLock(active: boolean): void {
+export function useWakeLock(active: boolean): { isActive: boolean } {
   const lockRef = useRef<WakeLockSentinel | null>(null);
+  const [isActive, setIsActive] = useState(false);
 
   useEffect(() => {
     if (!active) {
-      lockRef.current?.release().catch(() => {});
-      lockRef.current = null;
+      if (lockRef.current) {
+        lockRef.current.release().catch(() => {});
+        lockRef.current = null;
+        setIsActive(false);
+      }
       return;
     }
 
@@ -16,12 +20,19 @@ export function useWakeLock(active: boolean): void {
       .request('screen')
       .then((lock) => {
         lockRef.current = lock;
+        setIsActive(true);
+        lock.addEventListener('release', () => setIsActive(false));
       })
-      .catch(() => {}); // Not available or denied — ignore
+      .catch(() => { setIsActive(false); });
 
     return () => {
-      lockRef.current?.release().catch(() => {});
-      lockRef.current = null;
+      if (lockRef.current) {
+        lockRef.current.release().catch(() => {});
+        lockRef.current = null;
+        setIsActive(false);
+      }
     };
   }, [active]);
+
+  return { isActive };
 }

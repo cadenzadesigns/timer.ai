@@ -3,6 +3,7 @@ import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { useTimer } from './hooks/useTimer';
 import { useWakeLock } from './hooks/useWakeLock';
+import { setMuted } from './audio';
 import { NLInput } from './components/NLInput';
 import { PresetList } from './components/PresetList';
 
@@ -50,7 +51,177 @@ function formatTotal(s: number): string {
   return m > 0 ? `${m}m ${sec > 0 ? sec + 's' : ''}`.trim() : `${sec}s`;
 }
 
-// Manual config editor (when Convex not available)
+// ─── Settings Sheet ───────────────────────────────────────────────────────────
+
+interface SettingsSheetProps {
+  open: boolean;
+  onClose: () => void;
+  config: TimerConfig;
+  onConfigChange: (c: TimerConfig) => void;
+  soundEnabled: boolean;
+  onSoundToggle: () => void;
+  wakeLockEnabled: boolean;
+  onWakeLockToggle: () => void;
+  wakeLockActive: boolean;
+  isTimerActive: boolean;
+}
+
+function SettingsSheet({
+  open, onClose,
+  config, onConfigChange,
+  soundEnabled, onSoundToggle,
+  wakeLockEnabled, onWakeLockToggle,
+  wakeLockActive,
+  isTimerActive,
+}: SettingsSheetProps) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef<number | null>(null);
+
+  function handleTouchStart(e: React.TouchEvent) {
+    dragStartY.current = e.touches[0].clientY;
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (dragStartY.current === null) return;
+    const delta = e.changedTouches[0].clientY - dragStartY.current;
+    if (delta > 80) onClose();
+    dragStartY.current = null;
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className={`settings-backdrop${open ? ' settings-backdrop--open' : ''}`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Sheet */}
+      <div
+        ref={sheetRef}
+        className={`settings-sheet${open ? ' settings-sheet--open' : ''}`}
+        role="dialog"
+        aria-label="Settings"
+        aria-modal="true"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Drag handle */}
+        <div className="settings-drag-handle" />
+
+        {/* Header */}
+        <div className="settings-header">
+          <span className="settings-title">SETTINGS</span>
+          <button className="settings-close-btn" onClick={onClose} aria-label="Close settings">✕</button>
+        </div>
+
+        <div className="settings-body">
+          {/* Countdown Mode */}
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-label">COUNTDOWN</span>
+              <span className="settings-desc">
+                {config.countdown === '3-2-1'
+                  ? '3-2-1: Three descending beeps before each work phase'
+                  : 'Single: One beep to start'}
+              </span>
+            </div>
+            <div className="settings-toggle-group">
+              <button
+                type="button"
+                className={`settings-seg-btn${config.countdown === '3-2-1' ? ' active' : ''}`}
+                onClick={() => !isTimerActive && onConfigChange(
+                  makeTimerConfig(config.work, config.rest, config.rounds, config.sets, config.restBetweenSets, '3-2-1')
+                )}
+                disabled={isTimerActive}
+              >3-2-1</button>
+              <button
+                type="button"
+                className={`settings-seg-btn${config.countdown === 'single' ? ' active' : ''}`}
+                onClick={() => !isTimerActive && onConfigChange(
+                  makeTimerConfig(config.work, config.rest, config.rounds, config.sets, config.restBetweenSets, 'single')
+                )}
+                disabled={isTimerActive}
+              >SINGLE</button>
+            </div>
+          </div>
+
+          {/* Rest Between Sets (only when sets > 1) */}
+          {config.sets > 1 && (
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-label">SET REST</span>
+                <span className="settings-desc">Rest duration between sets (seconds)</span>
+              </div>
+              <div className="settings-number-field">
+                <input
+                  type="number"
+                  className="settings-number-input"
+                  value={config.restBetweenSets}
+                  min={0}
+                  max={600}
+                  disabled={isTimerActive}
+                  onChange={e => onConfigChange(
+                    makeTimerConfig(config.work, config.rest, config.rounds, config.sets, Number(e.target.value) || 0, config.countdown)
+                  )}
+                />
+                <span className="settings-unit">s</span>
+              </div>
+            </div>
+          )}
+
+          {/* Sound */}
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-label">SOUND</span>
+              <span className="settings-desc">Audio cues for work, rest, and countdown</span>
+            </div>
+            <button
+              type="button"
+              className={`settings-pill${soundEnabled ? ' active' : ''}`}
+              onClick={onSoundToggle}
+              aria-pressed={soundEnabled}
+            >
+              {soundEnabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          {/* Keep Screen On */}
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-label">KEEP SCREEN ON</span>
+              <span className="settings-desc">
+                {wakeLockActive
+                  ? 'Screen lock active — display will stay on'
+                  : wakeLockEnabled
+                    ? 'Will activate when timer starts'
+                    : 'Screen may sleep during workout'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className={`settings-pill${wakeLockEnabled ? ' active' : ''}`}
+              onClick={onWakeLockToggle}
+              aria-pressed={wakeLockEnabled}
+            >
+              {wakeLockEnabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          {isTimerActive && (
+            <div className="settings-active-note">
+              ↑ Some settings disabled while timer is active
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Manual Config Editor ─────────────────────────────────────────────────────
+
 function ManualConfig({ config, onChange }: { config: TimerConfig; onChange: (c: TimerConfig) => void }) {
   const [work, setWork] = useState(config.work);
   const [rest, setRest] = useState(config.rest);
@@ -122,9 +293,15 @@ function ManualConfig({ config, onChange }: { config: TimerConfig; onChange: (c:
   );
 }
 
+// ─── App ──────────────────────────────────────────────────────────────────────
+
 export default function App({ convexEnabled = false }: AppProps) {
   const [config, setConfig] = useState<TimerConfig>(DEFAULT_CONFIG);
   const [lastDescription, setLastDescription] = useState<string>('');
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   const { state, start, pause, resume, reset } = useTimer(config);
   const { phase, secondsLeft, currentRound, currentSet, totalElapsed, paused } = state;
   const meta = PHASE_META[phase];
@@ -135,8 +312,13 @@ export default function App({ convexEnabled = false }: AppProps) {
   const isComplete = phase === 'COMPLETE';
   const isIdle = phase === 'IDLE';
 
+  // Sync mute state
+  useEffect(() => {
+    setMuted(!soundEnabled);
+  }, [soundEnabled]);
+
   // Wake lock during active workout
-  useWakeLock(isRunning);
+  const { isActive: wakeLockActive } = useWakeLock(isRunning && wakeLockEnabled);
 
   // Phase flash
   const prevPhaseRef = useRef<TimerPhase>(phase);
@@ -217,6 +399,13 @@ export default function App({ convexEnabled = false }: AppProps) {
               ? formatTotal(config.totalSeconds)
               : formatElapsed(totalElapsed)}
           </span>
+          <button
+            className="settings-btn"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+          >
+            ⚙
+          </button>
         </header>
 
         {/* NL Input or Manual Config */}
@@ -354,6 +543,20 @@ export default function App({ convexEnabled = false }: AppProps) {
         {/* Bottom spacer */}
         <div style={{ height: '2rem' }} />
       </div>
+
+      {/* ─── Settings Sheet ──────────────────────────── */}
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        config={config}
+        onConfigChange={handleConfig}
+        soundEnabled={soundEnabled}
+        onSoundToggle={() => setSoundEnabled(v => !v)}
+        wakeLockEnabled={wakeLockEnabled}
+        onWakeLockToggle={() => setWakeLockEnabled(v => !v)}
+        wakeLockActive={wakeLockActive}
+        isTimerActive={isRunning || isPaused}
+      />
     </div>
   );
 }

@@ -1,6 +1,15 @@
 import type { AudioEvent } from '@timer-ai/core';
 
 let ctx: AudioContext | null = null;
+let muted = false;
+
+export function setMuted(value: boolean): void {
+  muted = value;
+}
+
+export function isMuted(): boolean {
+  return muted;
+}
 
 export function initAudio(): void {
   if (!ctx) {
@@ -39,7 +48,7 @@ function tone(
 }
 
 export function playAudioEvent(event: AudioEvent): void {
-  if (!ctx) return;
+  if (!ctx || muted) return;
 
   switch (event) {
     case 'work-start':
