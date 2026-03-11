@@ -170,6 +170,13 @@ function handleTick(state: TimerState): TickResult {
       else if (newSecondsLeft === 1) audioEvents.push('countdown-1');
     }
 
+    // 3-2-1 countdown during last 3 seconds of WORK (when countdown mode is 3-2-1)
+    if (state.phase === 'WORK' && state.config?.countdown === '3-2-1') {
+      if (newSecondsLeft === 3) audioEvents.push('countdown-3');
+      else if (newSecondsLeft === 2) audioEvents.push('countdown-2');
+      else if (newSecondsLeft === 1) audioEvents.push('countdown-1');
+    }
+
     return {
       state: { ...state, secondsLeft: newSecondsLeft, totalElapsed: newElapsed },
       audioEvents,
