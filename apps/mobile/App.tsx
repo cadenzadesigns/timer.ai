@@ -6,11 +6,25 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import * as SecureStore from 'expo-secure-store';
+import * as WebBrowser from 'expo-web-browser';
+import { makeRedirectUri } from 'expo-auth-session';
+import {
+  ClerkProvider,
+  useAuth,
+  useUser,
+  useOrganization,
+  useOrganizationList,
+  useOAuth,
+} from '@clerk/clerk-expo';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { TimerRing } from './src/components/TimerRing';
 import { useTimer } from './src/hooks/useTimer';
 import { useAudio } from './src/hooks/useAudio';
+
+// Required for OAuth flows
+WebBrowser.maybeCompleteAuthSession();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -26,7 +40,25 @@ const { width: SW } = Dimensions.get('window');
 const RING_SIZE = Math.min(SW - 56, 300);
 const KEEP_AWAKE_TAG = 'timer-active';
 const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
+const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const DEFAULT_CONFIG = makeTimerConfig(20, 10, 8, 1, 0, '3-2-1');
+
+// ─── Clerk token cache (expo-secure-store) ────────────────────────────────────
+
+const tokenCache = {
+  async getToken(key: string) {
+    try { return await SecureStore.getItemAsync(key); }
+    catch { return null; }
+  },
+  async saveToken(key: string, value: string) {
+    try { await SecureStore.setItemAsync(key, value); }
+    catch { /* silent */ }
+  },
+  async clearToken(key: string) {
+    try { await SecureStore.deleteItemAsync(key); }
+    catch { /* silent */ }
+  },
+};
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -97,45 +129,13 @@ function computeTotal(work: number, rest: number, rounds: number, config: TimerC
     + config.restBetweenSets * Math.max(0, config.sets - 1);
 }
 
-// ─── Convex HTTP Helpers ──────────────────────────────────────────────────────
-
-async function convexAction<T>(path: string, args: object): Promise<T> {
-  const res = await fetch(`${CONVEX_URL}/api/action`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, args }),
-  });
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  const json = await res.json();
-  return (json.value ?? json) as T;
-}
-
-async function convexQuery<T>(path: string, args: object): Promise<T> {
-  const res = await fetch(`${CONVEX_URL}/api/query`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, args }),
-  });
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  const json = await res.json();
-  return (json.value ?? json) as T;
-}
-
-async function convexMutation(path: string, args: object): Promise<void> {
-  const res = await fetch(`${CONVEX_URL}/api/mutation`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, args }),
-  });
-  if (!res.ok) throw new Error(`Request failed (${res.status})`);
-}
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Preset {
   _id: string;
   name: string;
   description?: string;
+  scope: 'personal' | 'org';
   config: TimerConfig;
 }
 
@@ -146,6 +146,26 @@ interface ParsedResult {
   rest: number;
   rounds: number;
   dismissedWarning: boolean;
+}
+
+// ─── Convex HTTP Helpers ──────────────────────────────────────────────────────
+
+async function convexCall(
+  endpoint: 'query' | 'mutation' | 'action',
+  path: string,
+  args: object,
+  token?: string | null,
+) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${CONVEX_URL}/api/${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ path, args }),
+  });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  const json = await res.json();
+  return json.value ?? json;
 }
 
 // ─── EditableChip ─────────────────────────────────────────────────────────────
@@ -302,6 +322,558 @@ function SettingsRow({ label, desc, children, C }: {
   );
 }
 
+// ─── Clerk: Sign-In Modal ─────────────────────────────────────────────────────
+// Only rendered inside ClerkProvider
+
+function ClerkSignInModal({ visible, onClose, C }: {
+  visible: boolean;
+  onClose: () => void;
+  C: Colors;
+}) {
+  const { startOAuthFlow: googleOAuth } = useOAuth({ strategy: 'oauth_google' });
+  const { startOAuthFlow: githubOAuth } = useOAuth({ strategy: 'oauth_github' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleOAuth(startFlow: typeof googleOAuth) {
+    setBusy(true);
+    setError(null);
+    try {
+      const redirectUrl = makeRedirectUri({ scheme: 'timerai', path: 'oauth-callback' });
+      const { createdSessionId, setActive } = await startFlow({ redirectUrl });
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId });
+        onClose();
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Sign-in failed. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity
+        style={siS.backdrop}
+        activeOpacity={1}
+        onPress={onClose}
+      />
+      <View style={[siS.sheet, { backgroundColor: C.surface, borderColor: C.border2 }]}>
+        {/* Header */}
+        <View style={[siS.header, { borderBottomColor: C.border }]}>
+          <View style={[siS.headerAccent, { backgroundColor: C.accent }]} />
+          <Text style={[siS.title, { color: C.text2, fontFamily: C.mono }]}>SIGN IN</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={[siS.closeBtn, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={siS.body}>
+          <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
+            Sign in to save and sync your presets across devices.
+          </Text>
+
+          {error && (
+            <Text style={[siS.error, { color: '#FF6644', fontFamily: C.mono }]}>
+              ⚠ {error}
+            </Text>
+          )}
+
+          <TouchableOpacity
+            style={[siS.oauthBtn, { borderColor: C.border2, backgroundColor: C.surface2 }]}
+            onPress={() => handleOAuth(googleOAuth)}
+            disabled={busy}
+            activeOpacity={0.7}
+          >
+            {busy
+              ? <ActivityIndicator size="small" color={C.accent} />
+              : <Text style={[siS.oauthBtnText, { color: C.text2, fontFamily: C.mono }]}>
+                  CONTINUE WITH GOOGLE
+                </Text>
+            }
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[siS.oauthBtn, { borderColor: C.border2, backgroundColor: C.surface2 }]}
+            onPress={() => handleOAuth(githubOAuth)}
+            disabled={busy}
+            activeOpacity={0.7}
+          >
+            <Text style={[siS.oauthBtnText, { color: C.text2, fontFamily: C.mono }]}>
+              CONTINUE WITH GITHUB
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const siS = StyleSheet.create({
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  sheet: {
+    position: 'absolute',
+    left: 20, right: 20,
+    top: '30%',
+    borderWidth: 1,
+    elevation: 30,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  headerAccent: { width: 3, height: 16 },
+  title:   { flex: 1, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  closeBtn:{ fontSize: 16 },
+  body:    { padding: 20, gap: 14 },
+  tagline: { fontSize: 12, letterSpacing: 0.5, lineHeight: 18, opacity: 0.8 },
+  error:   { fontSize: 12, letterSpacing: 0.3 },
+  oauthBtn: {
+    borderWidth: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  oauthBtnText: { fontSize: 12, fontWeight: '700', letterSpacing: 2 },
+});
+
+// ─── Clerk: User section in settings ─────────────────────────────────────────
+// Only rendered inside ClerkProvider
+
+function ClerkUserSection({ C, onSignIn }: { C: Colors; onSignIn: () => void }) {
+  const { isSignedIn, user } = useUser();
+  const { signOut } = useAuth();
+  const { organization } = useOrganization();
+  const { userMemberships, setActive } = useOrganizationList({
+    userMemberships: { infinite: true },
+  });
+
+  const orgs = (userMemberships?.data ?? []).map((m: any) => m.organization);
+
+  if (!isSignedIn) {
+    return (
+      <View style={[authS.section, { borderBottomColor: C.border }]}>
+        <Text style={[authS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>ACCOUNT</Text>
+        <TouchableOpacity
+          style={[authS.signInBtn, { borderColor: C.accent }]}
+          onPress={onSignIn}
+          activeOpacity={0.7}
+        >
+          <Text style={[authA.signInText, { color: C.accent, fontFamily: C.mono }]}>
+            SIGN IN
+          </Text>
+        </TouchableOpacity>
+        <Text style={[authA.hint, { color: C.text4, fontFamily: C.mono }]}>
+          Save and sync presets across devices
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      {/* User info + sign out */}
+      <View style={[authS.section, { borderBottomColor: C.border }]}>
+        <Text style={[authS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>ACCOUNT</Text>
+        <View style={authS.userRow}>
+          <View style={authS.userInfo}>
+            <Text style={[authS.userEmail, { color: C.text2, fontFamily: C.mono }]} numberOfLines={1}>
+              {user?.primaryEmailAddress?.emailAddress ?? user?.username ?? 'Signed in'}
+            </Text>
+            {organization && (
+              <Text style={[authS.userOrg, { color: C.text4, fontFamily: C.mono }]} numberOfLines={1}>
+                {organization.name}
+              </Text>
+            )}
+          </View>
+          <TouchableOpacity
+            style={[authS.signOutBtn, { borderColor: C.border2 }]}
+            onPress={() => signOut()}
+            activeOpacity={0.7}
+          >
+            <Text style={[authS.signOutText, { color: C.text4, fontFamily: C.mono }]}>
+              SIGN OUT
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Org switcher */}
+      {orgs.length > 0 && (
+        <View style={[authS.section, { borderBottomColor: C.border }]}>
+          <Text style={[authS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>WORKSPACE</Text>
+          {/* Personal */}
+          <TouchableOpacity
+            style={[
+              authS.orgRow,
+              { borderColor: C.border },
+              !organization && { borderColor: C.accent, backgroundColor: 'rgba(255,51,0,0.07)' },
+            ]}
+            onPress={() => setActive?.({ organization: null })}
+            activeOpacity={0.7}
+          >
+            <Text style={[authS.orgName, { color: !organization ? C.accent : C.text3, fontFamily: C.mono }]}>
+              PERSONAL
+            </Text>
+            {!organization && (
+              <Text style={[authS.orgActive, { color: C.accent, fontFamily: C.mono }]}>●</Text>
+            )}
+          </TouchableOpacity>
+          {/* Orgs */}
+          {orgs.map((org: any) => {
+            const active = organization?.id === org.id;
+            return (
+              <TouchableOpacity
+                key={org.id}
+                style={[
+                  authS.orgRow,
+                  { borderColor: C.border },
+                  active && { borderColor: C.accent, backgroundColor: 'rgba(255,51,0,0.07)' },
+                ]}
+                onPress={() => setActive?.({ organization: org.id })}
+                activeOpacity={0.7}
+              >
+                <Text style={[authS.orgName, { color: active ? C.accent : C.text3, fontFamily: C.mono }]}>
+                  {org.name.toUpperCase()}
+                </Text>
+                {active && (
+                  <Text style={[authS.orgActive, { color: C.accent, fontFamily: C.mono }]}>●</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+    </>
+  );
+}
+
+const authS = StyleSheet.create({
+  section: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  sectionLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 4 },
+  userRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  userInfo: { flex: 1, gap: 2 },
+  userEmail: { fontSize: 13, letterSpacing: 0.3 },
+  userOrg:   { fontSize: 11, letterSpacing: 0.5, opacity: 0.7 },
+  signOutBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  signOutText:  { fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
+  signInBtn: {
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  orgRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  orgName:   { fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
+  orgActive: { fontSize: 10 },
+});
+
+// Extra styles referenced in authS but defined separately to avoid circular refs
+const authA = StyleSheet.create({
+  signInText: { fontSize: 13, fontWeight: '700', letterSpacing: 4 },
+  hint: { fontSize: 11, letterSpacing: 0.5, opacity: 0.7 },
+});
+
+// ─── Clerk: Auth-aware presets section ───────────────────────────────────────
+// Only rendered inside ClerkProvider
+
+function ClerkAwarePresets({
+  isTimerActive, config, lastDescription, onLoad, C,
+}: {
+  isTimerActive: boolean;
+  config: TimerConfig;
+  lastDescription: string;
+  onLoad: (c: TimerConfig, name: string) => void;
+  C: Colors;
+}) {
+  const { isSignedIn, getToken } = useAuth();
+  const { organization } = useOrganization();
+  const [presets, setPresets] = useState<{ personal: Preset[]; org: Preset[] }>({
+    personal: [],
+    org: [],
+  });
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [scope, setScope] = useState<'personal' | 'org'>('personal');
+
+  const fetchWithAuth = useCallback(async (
+    endpoint: 'query' | 'mutation' | 'action',
+    path: string,
+    args: object,
+  ) => {
+    if (!CONVEX_URL) return null;
+    // 'convex' is the Clerk JWT template name — configure in Clerk dashboard
+    const token = isSignedIn ? await getToken({ template: 'convex' }) : null;
+    return convexCall(endpoint, path, args, token);
+  }, [isSignedIn, getToken]);
+
+  const loadPresets = useCallback(async () => {
+    if (!isSignedIn) { setPresets({ personal: [], org: [] }); return; }
+    try {
+      const data = await fetchWithAuth('query', 'presets:list', {});
+      if (data && typeof data === 'object' && 'personal' in data) {
+        setPresets(data as { personal: Preset[]; org: Preset[] });
+      }
+    } catch { /* silent */ }
+  }, [fetchWithAuth, isSignedIn]);
+
+  useEffect(() => { loadPresets(); }, [isSignedIn, organization?.id]);
+
+  async function handleSavePreset() {
+    if (savingPreset || isTimerActive || !isSignedIn) return;
+    const name = lastDescription?.trim()
+      ? lastDescription.slice(0, 60)
+      : `${config.work}s · ${config.rest}s · ${config.infinite ? '∞' : config.rounds + 'R'}`;
+    setSavingPreset(true);
+    try {
+      const effectiveScope = organization ? scope : 'personal';
+      await fetchWithAuth('mutation', 'presets:create', {
+        name,
+        config,
+        description: lastDescription || '',
+        scope: effectiveScope,
+      });
+      await loadPresets();
+    } catch { /* silent */ }
+    finally { setSavingPreset(false); }
+  }
+
+  async function handleDeletePreset(id: string) {
+    setPresets(prev => ({
+      personal: prev.personal.filter(p => p._id !== id),
+      org: prev.org.filter(p => p._id !== id),
+    }));
+    try { await fetchWithAuth('mutation', 'presets:remove', { id }); }
+    catch { await loadPresets(); }
+  }
+
+  const allEmpty = presets.personal.length === 0 && presets.org.length === 0;
+
+  return (
+    <View style={S.presetsSection}>
+      <SectionDivider label="PRESETS" C={C} />
+
+      {/* Save row */}
+      <View style={S.presetsTitleRow}>
+        {/* Scope toggle when in org */}
+        {isSignedIn && organization && (
+          <View style={presS.scopeToggle}>
+            {(['personal', 'org'] as const).map(s => (
+              <TouchableOpacity
+                key={s}
+                style={[
+                  presS.scopeBtn,
+                  { borderColor: C.border2 },
+                  scope === s && { backgroundColor: C.accent, borderColor: C.accent },
+                ]}
+                onPress={() => setScope(s)}
+                activeOpacity={0.7}
+              >
+                <Text style={[presS.scopeBtnText, {
+                  color: scope === s ? '#fff' : C.text4,
+                  fontFamily: C.mono,
+                }]}>
+                  {s === 'personal' ? 'PERSONAL' : 'TEAM'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {isSignedIn ? (
+          <TouchableOpacity
+            style={[S.saveBtn, {
+              borderColor: isTimerActive ? C.border : C.accent,
+              opacity: isTimerActive ? 0.4 : 1,
+            }]}
+            onPress={handleSavePreset}
+            disabled={isTimerActive || savingPreset}
+            activeOpacity={0.7}
+          >
+            {savingPreset
+              ? <ActivityIndicator size="small" color={C.accent} />
+              : <Text style={[S.saveBtnText, { color: C.accent, fontFamily: C.mono }]}>
+                  + SAVE CURRENT
+                </Text>
+            }
+          </TouchableOpacity>
+        ) : (
+          <Text style={[presS.signInHint, { color: C.text4, fontFamily: C.mono }]}>
+            Sign in to save presets
+          </Text>
+        )}
+      </View>
+
+      {/* Presets lists */}
+      {isSignedIn ? (
+        allEmpty ? (
+          <Text style={[S.presetsEmpty, { color: C.text4, fontFamily: C.mono }]}>
+            No presets yet — parse a workout and save it
+          </Text>
+        ) : (
+          <>
+            {presets.personal.length > 0 && (
+              <>
+                {organization && (
+                  <Text style={[presS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>
+                    PERSONAL
+                  </Text>
+                )}
+                {presets.personal.map(p => (
+                  <PresetCard
+                    key={p._id}
+                    preset={p}
+                    onLoad={() => onLoad(p.config, p.name)}
+                    onDelete={() => handleDeletePreset(p._id)}
+                    C={C}
+                  />
+                ))}
+              </>
+            )}
+
+            {presets.org.length > 0 && (
+              <>
+                <Text style={[presS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>
+                  {organization ? `TEAM · ${organization.name.toUpperCase()}` : 'TEAM'}
+                </Text>
+                {presets.org.map(p => (
+                  <PresetCard
+                    key={p._id}
+                    preset={p}
+                    onLoad={() => onLoad(p.config, p.name)}
+                    onDelete={() => handleDeletePreset(p._id)}
+                    C={C}
+                  />
+                ))}
+              </>
+            )}
+          </>
+        )
+      ) : (
+        <Text style={[S.presetsEmpty, { color: C.text4, fontFamily: C.mono }]}>
+          Sign in to view and save presets
+        </Text>
+      )}
+    </View>
+  );
+}
+
+const presS = StyleSheet.create({
+  scopeToggle: { flexDirection: 'row', gap: 0, marginBottom: 10 },
+  scopeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+  },
+  scopeBtnText: { fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 4,
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  signInHint: {
+    fontSize: 12,
+    letterSpacing: 0.5,
+    opacity: 0.7,
+  },
+});
+
+// ─── PresetCard ───────────────────────────────────────────────────────────────
+
+function PresetCard({ preset, onLoad, onDelete, C }: {
+  preset: Preset;
+  onLoad: () => void;
+  onDelete: () => void;
+  C: Colors;
+}) {
+  const c = preset.config;
+  const detail = [
+    `${c.work}s work`,
+    `${c.rest}s rest`,
+    c.infinite ? '∞ loop' : `${c.rounds}R`,
+    c.sets > 1 ? `${c.sets} sets` : null,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <View style={[presetS.card, { borderColor: C.border, backgroundColor: C.surface2 }]}>
+      <View style={[presetS.leftAccent, { backgroundColor: C.border2 }]} />
+      <TouchableOpacity style={presetS.info} onPress={onLoad} activeOpacity={0.7}>
+        <Text style={[presetS.name, { color: C.text2, fontFamily: C.mono }]} numberOfLines={1}>
+          {preset.name}
+        </Text>
+        <Text style={[presetS.detail, { color: C.text4, fontFamily: C.mono }]} numberOfLines={1}>
+          {detail}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onDelete}
+        style={presetS.del}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.7}
+      >
+        <Text style={[presetS.delText, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const presetS = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    marginBottom: 7,
+    minHeight: 56,
+    overflow: 'hidden',
+  },
+  leftAccent: { width: 3, alignSelf: 'stretch' },
+  info:       { flex: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
+  name:       { fontSize: 14, fontWeight: '600', letterSpacing: 0.3 },
+  detail:     { fontSize: 12, letterSpacing: 0.8 },
+  del:        { padding: 16, alignItems: 'center', justifyContent: 'center' },
+  delText:    { fontSize: 14 },
+});
+
+// ─── SectionDivider ───────────────────────────────────────────────────────────
+
+function SectionDivider({ label, C }: { label: string; C: Colors }) {
+  return (
+    <View style={divS.row}>
+      <View style={[divS.line, { backgroundColor: C.border }]} />
+      <Text style={[divS.label, { color: C.text4, fontFamily: C.mono }]}>{label}</Text>
+      <View style={[divS.line, { backgroundColor: C.border }]} />
+    </View>
+  );
+}
+
+const divS = StyleSheet.create({
+  row:   { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
+  line:  { flex: 1, height: 1 },
+  label: { fontSize: 10, fontWeight: '700', letterSpacing: 4 },
+});
+
 // ─── SettingsSheet ────────────────────────────────────────────────────────────
 
 interface SettingsSheetProps {
@@ -316,6 +888,8 @@ interface SettingsSheetProps {
   theme: Theme;
   onThemeToggle: () => void;
   isTimerActive: boolean;
+  clerkEnabled: boolean;
+  onSignIn: () => void;
   C: Colors;
 }
 
@@ -325,7 +899,7 @@ function SettingsSheet({
   soundEnabled, onSoundToggle,
   keepScreenOn, onKeepScreenToggle,
   theme, onThemeToggle,
-  isTimerActive, C,
+  isTimerActive, clerkEnabled, onSignIn, C,
 }: SettingsSheetProps) {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const [setRestDraft, setSetRestDraft] = useState(String(config.restBetweenSets));
@@ -393,6 +967,9 @@ function SettingsSheet({
         </View>
 
         <ScrollView style={settS.body} showsVerticalScrollIndicator={false}>
+          {/* Clerk: User account + org switcher */}
+          {clerkEnabled && <ClerkUserSection C={C} onSignIn={onSignIn} />}
+
           {/* Countdown mode */}
           <SettingsRow
             label="COUNTDOWN"
@@ -502,10 +1079,8 @@ const settS = StyleSheet.create({
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
     borderTopWidth: 1,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
     paddingBottom: Platform.OS === 'ios' ? 36 : 16,
-    maxHeight: '85%',
+    maxHeight: '90%',
     elevation: 24,
   },
   dragHandle: {
@@ -557,83 +1132,9 @@ const settS = StyleSheet.create({
   activeNote: { fontSize: 11, letterSpacing: 0.5, marginTop: 12, textAlign: 'center', opacity: 0.7 },
 });
 
-// ─── PresetCard ───────────────────────────────────────────────────────────────
+// ─── AppContent ───────────────────────────────────────────────────────────────
 
-function PresetCard({ preset, onLoad, onDelete, C }: {
-  preset: Preset;
-  onLoad: () => void;
-  onDelete: () => void;
-  C: Colors;
-}) {
-  const c = preset.config;
-  const detail = [
-    `${c.work}s work`,
-    `${c.rest}s rest`,
-    c.infinite ? '∞ loop' : `${c.rounds}R`,
-    c.sets > 1 ? `${c.sets} sets` : null,
-  ].filter(Boolean).join(' · ');
-
-  return (
-    <View style={[presetS.card, { borderColor: C.border, backgroundColor: C.surface2 }]}>
-      <View style={[presetS.leftAccent, { backgroundColor: C.border2 }]} />
-      <TouchableOpacity style={presetS.info} onPress={onLoad} activeOpacity={0.7}>
-        <Text style={[presetS.name, { color: C.text2, fontFamily: C.mono }]} numberOfLines={1}>
-          {preset.name}
-        </Text>
-        <Text style={[presetS.detail, { color: C.text4, fontFamily: C.mono }]} numberOfLines={1}>
-          {detail}
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={onDelete}
-        style={presetS.del}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        activeOpacity={0.7}
-      >
-        <Text style={[presetS.delText, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-const presetS = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    marginBottom: 7,
-    minHeight: 56,
-    overflow: 'hidden',
-  },
-  leftAccent: { width: 3, alignSelf: 'stretch' },
-  info:       { flex: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
-  name:       { fontSize: 14, fontWeight: '600', letterSpacing: 0.3 },
-  detail:     { fontSize: 12, letterSpacing: 0.8 },
-  del:        { padding: 16, alignItems: 'center', justifyContent: 'center' },
-  delText:    { fontSize: 14 },
-});
-
-// ─── SectionDivider ───────────────────────────────────────────────────────────
-
-function SectionDivider({ label, C }: { label: string; C: Colors }) {
-  return (
-    <View style={divS.row}>
-      <View style={[divS.line, { backgroundColor: C.border }]} />
-      <Text style={[divS.label, { color: C.text4, fontFamily: C.mono }]}>{label}</Text>
-      <View style={[divS.line, { backgroundColor: C.border }]} />
-    </View>
-  );
-}
-
-const divS = StyleSheet.create({
-  row:   { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
-  line:  { flex: 1, height: 1 },
-  label: { fontSize: 10, fontWeight: '700', letterSpacing: 4 },
-});
-
-// ─── App ─────────────────────────────────────────────────────────────────────
-
-export default function App() {
+function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
   // Theme
   const [theme, setTheme] = useState<Theme>('dark');
   const C = theme === 'dark' ? DARK : LIGHT;
@@ -654,9 +1155,8 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [keepScreenOn, setKeepScreenOn] = useState(true);
 
-  // Presets
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [savingPreset, setSavingPreset] = useState(false);
+  // Sign-in modal
+  const [signInOpen, setSignInOpen] = useState(false);
 
   // Timer
   const audio = useAudio();
@@ -722,17 +1222,6 @@ export default function App() {
     }
   }, [secondsLeft, phase]);
 
-  // Load presets
-  const loadPresets = useCallback(async () => {
-    if (!CONVEX_URL) return;
-    try {
-      const data = await convexQuery<Preset[]>('presets:list', {});
-      setPresets(data);
-    } catch { /* silent */ }
-  }, []);
-
-  useEffect(() => { loadPresets(); }, []);
-
   // Config handlers
   function handleConfig(c: TimerConfig, name?: string) {
     setConfig(c);
@@ -741,7 +1230,7 @@ export default function App() {
     if (name) setLastDescription(name);
   }
 
-  // NL Parse
+  // NL Parse — actions don't require auth
   async function handleParse() {
     const trimmed = inputText.trim();
     if (!trimmed || parsing) return;
@@ -750,9 +1239,9 @@ export default function App() {
     setParsed(null);
     setEditingField(null);
     try {
-      const result = await convexAction<TimerConfig & { name?: string; requestedTotalSeconds?: number }>(
-        'parseWorkout:parseWorkout', { description: trimmed }
-      );
+      const result = await convexCall(
+        'action', 'parseWorkout:parseWorkout', { description: trimmed }
+      ) as TimerConfig & { name?: string; requestedTotalSeconds?: number };
       const cfg = makeTimerConfig(
         result.work, result.rest, result.rounds,
         result.sets, result.restBetweenSets, result.countdown, result.infinite,
@@ -803,30 +1292,6 @@ export default function App() {
   const showMismatch = parsed && !parsed.dismissedWarning
     && parsed.requestedTotalSeconds != null
     && Math.abs(parsedTotal - parsed.requestedTotalSeconds) >= 3;
-
-  // Presets
-  async function handleSavePreset() {
-    if (!CONVEX_URL || savingPreset || isTimerActive) return;
-    const name = lastDescription?.trim()
-      ? lastDescription.slice(0, 60)
-      : `${config.work}s · ${config.rest}s · ${config.infinite ? '∞' : config.rounds + 'R'}`;
-    setSavingPreset(true);
-    try {
-      await convexMutation('presets:create', {
-        name,
-        config,
-        description: lastDescription || '',
-      });
-      await loadPresets();
-    } catch { /* silent */ }
-    finally { setSavingPreset(false); }
-  }
-
-  async function handleDeletePreset(id: string) {
-    setPresets(prev => prev.filter(p => p._id !== id));
-    try { await convexMutation('presets:remove', { id }); }
-    catch { await loadPresets(); }
-  }
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -1129,45 +1594,14 @@ export default function App() {
           </View>
 
           {/* ── Presets ────────────────────────────────────────── */}
-          {!!CONVEX_URL && (
-            <View style={S.presetsSection}>
-              <SectionDivider label="PRESETS" C={C} />
-
-              <View style={S.presetsTitleRow}>
-                <TouchableOpacity
-                  style={[S.saveBtn, {
-                    borderColor: isTimerActive ? C.border : C.accent,
-                    opacity: isTimerActive ? 0.4 : 1,
-                  }]}
-                  onPress={handleSavePreset}
-                  disabled={isTimerActive || savingPreset}
-                  activeOpacity={0.7}
-                >
-                  {savingPreset
-                    ? <ActivityIndicator size="small" color={C.accent} />
-                    : <Text style={[S.saveBtnText, { color: C.accent, fontFamily: C.mono }]}>
-                        + SAVE CURRENT
-                      </Text>
-                  }
-                </TouchableOpacity>
-              </View>
-
-              {presets.length === 0 ? (
-                <Text style={[S.presetsEmpty, { color: C.text4, fontFamily: C.mono }]}>
-                  No presets yet — parse a workout and save it
-                </Text>
-              ) : (
-                presets.map(p => (
-                  <PresetCard
-                    key={p._id}
-                    preset={p}
-                    onLoad={() => handleConfig(p.config, p.name)}
-                    onDelete={() => handleDeletePreset(p._id)}
-                    C={C}
-                  />
-                ))
-              )}
-            </View>
+          {!!CONVEX_URL && clerkEnabled && (
+            <ClerkAwarePresets
+              isTimerActive={isTimerActive}
+              config={config}
+              lastDescription={lastDescription}
+              onLoad={(c, name) => handleConfig(c, name)}
+              C={C}
+            />
           )}
 
           <View style={{ height: 60 }} />
@@ -1187,8 +1621,19 @@ export default function App() {
         theme={theme}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         isTimerActive={isTimerActive}
+        clerkEnabled={clerkEnabled}
+        onSignIn={() => { setSettingsOpen(false); setSignInOpen(true); }}
         C={C}
       />
+
+      {/* Sign-in modal (Clerk only) */}
+      {clerkEnabled && (
+        <ClerkSignInModal
+          visible={signInOpen}
+          onClose={() => setSignInOpen(false)}
+          C={DARK} // always dark for modal
+        />
+      )}
     </View>
   );
 }
@@ -1412,7 +1857,7 @@ const S = StyleSheet.create({
 
   // Presets
   presetsSection: { width: '100%' },
-  presetsTitleRow: { marginBottom: 12 },
+  presetsTitleRow: { marginBottom: 12, gap: 10 },
   saveBtn: {
     borderWidth: 1.5,
     paddingHorizontal: 16,
@@ -1428,3 +1873,17 @@ const S = StyleSheet.create({
     opacity: 0.7,
   },
 });
+
+// ─── Root — conditionally wraps with ClerkProvider ────────────────────────────
+
+export default function App() {
+  if (!CLERK_KEY) {
+    return <AppContent clerkEnabled={false} />;
+  }
+
+  return (
+    <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
+      <AppContent clerkEnabled={true} />
+    </ClerkProvider>
+  );
+}

@@ -3,7 +3,9 @@ import { v } from "convex/values";
 
 export default defineSchema({
   presets: defineTable({
-    userId: v.optional(v.string()),
+    userId: v.string(),
+    orgId: v.optional(v.string()),
+    scope: v.union(v.literal("personal"), v.literal("org")),
     name: v.string(),
     description: v.string(),
     config: v.object({
@@ -18,5 +20,7 @@ export default defineSchema({
     }),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_created", ["createdAt"]),
+  })
+    .index("by_user", ["userId", "createdAt"])
+    .index("by_org", ["orgId", "createdAt"]),
 });

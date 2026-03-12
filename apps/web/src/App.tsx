@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { useTimer } from './hooks/useTimer';
@@ -9,6 +10,7 @@ import { PresetList } from './components/PresetList';
 
 interface AppProps {
   convexEnabled?: boolean;
+  clerkEnabled?: boolean;
 }
 
 const DEFAULT_CONFIG = makeTimerConfig(20, 10, 8, 1, 0, '3-2-1');
@@ -316,7 +318,7 @@ function ManualConfig({ config, onChange }: { config: TimerConfig; onChange: (c:
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-export default function App({ convexEnabled = false }: AppProps) {
+export default function App({ convexEnabled = false, clerkEnabled = false }: AppProps) {
   const [config, setConfig] = useState<TimerConfig>(DEFAULT_CONFIG);
   const [lastDescription, setLastDescription] = useState<string>('');
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -431,13 +433,34 @@ export default function App({ convexEnabled = false }: AppProps) {
               ? formatTotal(config.totalSeconds)
               : formatElapsed(totalElapsed)}
           </span>
-          <button
-            className="settings-btn"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Open settings"
-          >
-            ⚙
-          </button>
+          <div className="header-actions">
+            {clerkEnabled && (
+              <>
+                <SignedOut>
+                  <SignInButton mode="modal">
+                    <button className="auth-sign-in-btn">SIGN IN</button>
+                  </SignInButton>
+                </SignedOut>
+                <SignedIn>
+                  <UserButton
+                    appearance={{
+                      elements: {
+                        avatarBox: 'clerk-avatar-box',
+                        userButtonTrigger: 'clerk-user-trigger',
+                      },
+                    }}
+                  />
+                </SignedIn>
+              </>
+            )}
+            <button
+              className="settings-btn"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open settings"
+            >
+              ⚙
+            </button>
+          </div>
         </header>
 
         {/* NL Input or Manual Config */}
@@ -569,6 +592,7 @@ export default function App({ convexEnabled = false }: AppProps) {
             onLoad={handleConfig}
             currentConfig={config}
             lastDescription={lastDescription}
+            clerkEnabled={clerkEnabled}
           />
         )}
 

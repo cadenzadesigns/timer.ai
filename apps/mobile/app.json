@@ -5,7 +5,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "scheme": "timerai",
     "backgroundColor": "#1a1a2e",
     "ios": {
@@ -16,8 +19,14 @@
     },
     "android": {
       "backgroundColor": "#1a1a2e",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
-    "plugins": ["expo-av"]
+    "plugins": [
+      "expo-av",
+      "expo-secure-store",
+      "expo-web-browser"
+    ]
   }
 }
