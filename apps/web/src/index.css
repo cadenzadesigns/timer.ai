@@ -150,28 +150,50 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 0 12px;
+  height: 60px;
+  padding: 0;
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
 }
 
 .app-brand {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 15px;
   letter-spacing: 0.4em;
   color: var(--c-text-2);
   text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+/* Right-side header cluster: elapsed · divider · [avatar] · gear */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  height: 100%;
 }
 
 .app-tagline {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 17px;
-  color: var(--c-text-2);
-  letter-spacing: 0.1em;
+  font-size: 13px;
+  color: var(--c-text-3);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.header-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--c-border-2);
+  flex-shrink: 0;
 }
 
 /* ─── Input section ──────────────────────────────────────────── */
 .input-section {
   width: 100%;
+  margin-top: 20px;
   margin-bottom: 20px;
 }
 
@@ -183,10 +205,9 @@ body {
   gap: 8px;
 }
 
-.nl-input-row {
+.nl-input-group {
   display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .nl-textarea {
@@ -197,6 +218,7 @@ body {
   color: var(--c-text);
   background: var(--c-surface-2);
   border: 1px solid var(--c-border-input);
+  border-right: none;
   padding: 12px 14px;
   resize: none;
   outline: none;
@@ -222,32 +244,30 @@ body {
 .nl-parse-btn {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 14px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
   padding: 0 20px;
-  height: 52px;
-  min-width: 72px;
-  border: 1.5px solid #FF3300;
-  color: #FF3300;
+  height: 42px;
+  width: 100%;
+  border: 1px solid var(--c-border-2);
+  color: var(--c-text-3);
   background: transparent;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-  clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
 }
 
 .nl-parse-btn:hover:not(:disabled) {
-  background: #FF3300;
-  color: #000;
+  background: var(--c-surface-hover);
+  color: var(--c-text);
+  border-color: var(--c-border-3);
 }
 
 .nl-parse-btn:disabled {
-  border-color: var(--c-text-3);
-  color: var(--c-text-3);
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -526,22 +546,25 @@ body {
   border: 1px solid var(--c-border);
   padding: 5px 10px;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  margin-left: -1px;
+  position: relative;
 }
 
-.preset-scope-btn + .preset-scope-btn {
-  border-left: none;
+.preset-scope-btn:first-child {
+  margin-left: 0;
 }
 
 .preset-scope-btn.active {
-  background: var(--c-accent);
-  border-color: var(--c-accent);
-  color: #fff;
+  background: var(--c-seg-active);
+  border-color: var(--c-border-2);
+  color: var(--c-text);
+  z-index: 1;
 }
 
 .preset-scope-btn:not(.active):hover {
   color: var(--c-text-2);
-  border-color: var(--c-border-3);
+  background: var(--c-surface-hover);
 }
 
 .preset-signin-hint {
@@ -772,60 +795,63 @@ body {
   transform: scale(0.97);
 }
 
-/* ─── Header actions group ───────────────────────────────────── */
+/* ─── Header actions group (legacy alias) ────────────────────── */
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
   flex-shrink: 0;
 }
 
 /* ─── Clerk sign-in button ───────────────────────────────────── */
 .auth-sign-in-btn {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 2px;
-  color: var(--c-accent);
+  color: var(--c-text-3);
   background: transparent;
-  border: 1px solid var(--c-accent);
-  padding: 0 10px;
-  height: 30px;
+  border: 1px solid var(--c-border-2);
+  padding: 0 12px;
+  height: 34px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .auth-sign-in-btn:hover {
-  background: var(--c-accent);
-  color: #fff;
+  border-color: var(--c-border-3);
+  color: var(--c-text);
 }
 
 /* ─── Clerk UserButton overrides ─────────────────────────────── */
 .clerk-avatar-box {
-  width: 28px !important;
-  height: 28px !important;
+  width: 34px !important;
+  height: 34px !important;
 }
 
 .clerk-user-trigger {
-  border-radius: 0 !important;
-  border: 1px solid var(--c-border) !important;
+  border-radius: 50% !important;
+  border: none !important;
   outline: none !important;
   box-shadow: none !important;
+  padding: 0 !important;
 }
 
 .clerk-user-trigger:focus {
-  border-color: var(--c-border-3) !important;
+  border: none !important;
   box-shadow: none !important;
 }
 
 /* ─── Settings button (header gear icon) ────────────────────── */
 .settings-btn {
-  font-size: 18px;
   color: var(--c-text-4);
   background: transparent;
   border: 1px solid var(--c-border);
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1324,15 +1350,13 @@ body {
 /* ─── Voice / Mic button ─────────────────────────────────────── */
 .nl-mic-btn {
   width: 52px;
-  height: 52px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  background: transparent;
-  border: 1.5px solid var(--c-border-2);
-  color: var(--c-text-3);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border-input);
+  color: var(--c-text-4);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   -webkit-tap-highlight-color: transparent;

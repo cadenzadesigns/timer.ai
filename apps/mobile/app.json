@@ -5,28 +5,40 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "platforms": [
-      "ios",
-      "android"
-    ],
+    "platforms": ["ios", "android"],
     "scheme": "timerai",
     "backgroundColor": "#1a1a2e",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
     "ios": {
+      "bundleIdentifier": "com.cadenzadesigns.timerai",
+      "buildNumber": "1",
       "supportsTablet": false,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Used for voice workout input"
+        "NSMicrophoneUsageDescription": "Used for voice workout input",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
+      "package": "com.cadenzadesigns.timerai",
+      "versionCode": 1,
       "backgroundColor": "#1a1a2e",
-      "permissions": [
-        "RECORD_AUDIO"
-      ]
+      "permissions": ["RECORD_AUDIO"]
     },
     "plugins": [
       "expo-av",
       "expo-secure-store",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    },
+    "owner": "cadenzadesigns"
   }
 }
