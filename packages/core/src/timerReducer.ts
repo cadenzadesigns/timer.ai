@@ -54,7 +54,7 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
   // If no rest period, skip REST and go straight to next work (no countdown between back-to-back rounds)
   if (config.rest === 0) {
     if (config.infinite) {
-      return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet, true);
+      return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
     }
     if (isLastRound) {
       if (config.restBetweenSets > 0) {
@@ -68,9 +68,9 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
           audioEvents: ['rest-start'],
         };
       }
-      return transitionToWork(state, newElapsed, 1, state.currentSet + 1, true);
+      return transitionToWork(state, newElapsed, 1, state.currentSet + 1);
     }
-    return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet, true);
+    return transitionToWork(state, newElapsed, state.currentRound + 1, state.currentSet);
   }
 
   // Normal: transition to REST
@@ -85,22 +85,9 @@ function transitionFromWork(state: TimerState, newElapsed: number): TickResult {
   };
 }
 
-/** Helper: transition to WORK phase, inserting COUNTDOWN if config says 3-2-1 and skipCountdown is false */
-function transitionToWork(state: TimerState, newElapsed: number, round: number, set: number, skipCountdown = false): TickResult {
+/** Helper: transition to WORK phase — always goes straight to WORK, no countdown phase */
+function transitionToWork(state: TimerState, newElapsed: number, round: number, set: number): TickResult {
   const config = state.config!;
-  if (config.countdown === '3-2-1' && !skipCountdown) {
-    return {
-      state: {
-        ...state,
-        phase: 'COUNTDOWN',
-        secondsLeft: 3,
-        currentRound: round,
-        currentSet: set,
-        totalElapsed: newElapsed,
-      },
-      audioEvents: ['countdown-3'],
-    };
-  }
   return {
     state: {
       ...state,
@@ -172,13 +159,7 @@ function handleTick(state: TimerState): TickResult {
     const newSecondsLeft = state.secondsLeft - 1;
     const audioEvents: AudioEvent[] = [];
 
-    // Emit countdown audio based on the new value we're showing
-    if (state.phase === 'COUNTDOWN') {
-      if (newSecondsLeft === 2) audioEvents.push('countdown-2');
-      else if (newSecondsLeft === 1) audioEvents.push('countdown-1');
-    }
-
-    // 3-2-1 countdown during last 3 seconds of WORK (when countdown mode is 3-2-1)
+    // 3-2-1 countdown tones during last 3 seconds of WORK
     if (state.phase === 'WORK' && state.config?.countdown === '3-2-1') {
       if (newSecondsLeft === 3) audioEvents.push('countdown-3');
       else if (newSecondsLeft === 2) audioEvents.push('countdown-2');
@@ -193,8 +174,6 @@ function handleTick(state: TimerState): TickResult {
 
   // secondsLeft === 1 — transition to next phase
   switch (state.phase) {
-    case 'COUNTDOWN':
-      return transitionFromCountdown(state, newElapsed);
     case 'WORK':
       return transitionFromWork(state, newElapsed);
     case 'REST':
@@ -220,20 +199,6 @@ export function timerReducer(state: TimerState, action: TimerAction): TickResult
 
     case 'START': {
       if (!state.config) return noop(state);
-      if (state.config.countdown === '3-2-1') {
-        return {
-          state: {
-            ...state,
-            phase: 'COUNTDOWN',
-            secondsLeft: 3,
-            currentRound: 1,
-            currentSet: 1,
-            totalElapsed: 0,
-            paused: false,
-          },
-          audioEvents: ['countdown-3'],
-        };
-      }
       return {
         state: {
           ...state,

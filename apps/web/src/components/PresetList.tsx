@@ -14,15 +14,31 @@ export function PresetList({ onLoad, currentConfig, lastDescription }: Props) {
   const removePreset = useMutation(api.presets.remove);
 
   function formatConfig(c: TimerConfig) {
-    const parts = [`${c.work}s / ${c.rest}s`, `${c.rounds} rds`];
-    if (c.sets > 1) parts.push(`${c.sets} sets`);
+    const work = c.work >= 60 ? `${Math.floor(c.work / 60)}m${c.work % 60 ? c.work % 60 + 's' : ''}` : `${c.work}s`;
+    const rest = c.rest >= 60 ? `${Math.floor(c.rest / 60)}m${c.rest % 60 ? c.rest % 60 + 's' : ''}` : `${c.rest}s`;
+    const parts = [`${work} work`, `${rest} rest`];
+    if ((c as any).infinite) {
+      parts.push('∞ loop');
+    } else {
+      parts.push(`${c.rounds} rounds`);
+      if (c.sets > 1) parts.push(`${c.sets} sets`);
+    }
     return parts.join(' · ');
+  }
+
+  function humanName(c: TimerConfig) {
+    const work = c.work >= 60 ? `${Math.floor(c.work / 60)}min` : `${c.work}s`;
+    const rest = c.rest > 0 ? (c.rest >= 60 ? `${Math.floor(c.rest / 60)}min rest` : `${c.rest}s rest`) : 'no rest';
+    if ((c as any).infinite) return `Every ${work}, ${rest}`;
+    const rounds = `${c.rounds} round${c.rounds > 1 ? 's' : ''}`;
+    const sets = c.sets > 1 ? `, ${c.sets} sets` : '';
+    return `${work} on / ${rest} × ${rounds}${sets}`;
   }
 
   async function handleSave() {
     const name = lastDescription?.trim()
       ? lastDescription.slice(0, 60)
-      : `${currentConfig.work}s/${currentConfig.rest}s×${currentConfig.rounds}`;
+      : humanName(currentConfig);
     await createPreset({
       name,
       description: lastDescription || name,

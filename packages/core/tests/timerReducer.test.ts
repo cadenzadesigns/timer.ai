@@ -26,31 +26,35 @@ describe('timerReducer', () => {
     });
   });
 
-  describe('3-2-1 countdown', () => {
-    it('emits countdown-3 on START and transitions correctly', () => {
-      const config = makeTimerConfig(20, 10, 2, 1, 0, '3-2-1');
+  describe('3-2-1 countdown tones', () => {
+    it('goes straight to WORK on START and plays countdown tones in last 3 seconds', () => {
+      const config = makeTimerConfig(5, 10, 2, 1, 0, '3-2-1');
       const configured = timerReducer(initialTimerState, { type: 'CONFIGURE', config });
       const started = timerReducer(configured.state, { type: 'START' });
 
-      expect(started.state.phase).toBe('COUNTDOWN');
-      expect(started.state.secondsLeft).toBe(3);
-      expect(started.audioEvents).toContain('countdown-3');
+      // START goes straight to WORK
+      expect(started.state.phase).toBe('WORK');
+      expect(started.state.secondsLeft).toBe(5);
+      expect(started.audioEvents).toContain('work-start');
 
-      // Tick: 3→2, emit countdown-2
+      // Tick 5→4: no countdown yet
       const tick1 = timerReducer(started.state, { type: 'TICK' });
-      expect(tick1.state.secondsLeft).toBe(2);
-      expect(tick1.audioEvents).toContain('countdown-2');
+      expect(tick1.state.secondsLeft).toBe(4);
 
-      // Tick: 2→1, emit countdown-1
+      // Tick 4→3: countdown-3
       const tick2 = timerReducer(tick1.state, { type: 'TICK' });
-      expect(tick2.state.secondsLeft).toBe(1);
-      expect(tick2.audioEvents).toContain('countdown-1');
+      expect(tick2.state.secondsLeft).toBe(3);
+      expect(tick2.audioEvents).toContain('countdown-3');
 
-      // Tick: 1→0 → WORK, emit beep
+      // Tick 3→2: countdown-2
       const tick3 = timerReducer(tick2.state, { type: 'TICK' });
-      expect(tick3.state.phase).toBe('WORK');
-      expect(tick3.state.secondsLeft).toBe(20);
-      expect(tick3.audioEvents).toContain('work-start');
+      expect(tick3.state.secondsLeft).toBe(2);
+      expect(tick3.audioEvents).toContain('countdown-2');
+
+      // Tick 2→1: countdown-1
+      const tick4 = timerReducer(tick3.state, { type: 'TICK' });
+      expect(tick4.state.secondsLeft).toBe(1);
+      expect(tick4.audioEvents).toContain('countdown-1');
     });
 
     it('enters WORK directly on single buzzer START', () => {
