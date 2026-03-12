@@ -64,6 +64,8 @@ interface SettingsSheetProps {
   onWakeLockToggle: () => void;
   wakeLockActive: boolean;
   isTimerActive: boolean;
+  theme: 'dark' | 'light';
+  onThemeToggle: () => void;
 }
 
 function SettingsSheet({
@@ -73,6 +75,7 @@ function SettingsSheet({
   wakeLockEnabled, onWakeLockToggle,
   wakeLockActive,
   isTimerActive,
+  theme, onThemeToggle,
 }: SettingsSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number | null>(null);
@@ -209,6 +212,24 @@ function SettingsSheet({
             </button>
           </div>
 
+          {/* Theme */}
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-label">THEME</span>
+              <span className="settings-desc">
+                {theme === 'dark' ? 'Dark mode — easy on the eyes' : 'Light mode — bright and clean'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className={`settings-pill${theme === 'light' ? ' active' : ''}`}
+              onClick={onThemeToggle}
+              aria-pressed={theme === 'light'}
+            >
+              {theme === 'dark' ? 'DARK' : 'LIGHT'}
+            </button>
+          </div>
+
           {isTimerActive && (
             <div className="settings-active-note">
               ↑ Some settings disabled while timer is active
@@ -300,6 +321,17 @@ export default function App({ convexEnabled = false }: AppProps) {
   const [lastDescription, setLastDescription] = useState<string>('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [wakeLockEnabled, setWakeLockEnabled] = useState(true);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('timer-ai-theme') as 'dark' | 'light') || 'dark';
+    }
+    return 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('timer-ai-theme', theme);
+  }, [theme]);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { state, start, pause, resume, reset } = useTimer(config);
@@ -556,6 +588,8 @@ export default function App({ convexEnabled = false }: AppProps) {
         onWakeLockToggle={() => setWakeLockEnabled(v => !v)}
         wakeLockActive={wakeLockActive}
         isTimerActive={isRunning || isPaused}
+        theme={theme}
+        onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
       />
     </div>
   );
