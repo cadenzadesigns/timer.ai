@@ -35,8 +35,8 @@ body {
   width: 100%;
   min-height: 100%;
   font-family: 'Share Tech Mono', monospace;
-  background: #08080e;
-  color: #ffffff;
+  background: #1a1a2e;
+  color: #f0f0f0;
   -webkit-font-smoothing: antialiased;
   overflow-y: auto;
   overflow-x: hidden;
@@ -81,16 +81,16 @@ body {
 .app-brand {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 18px;
   letter-spacing: 0.4em;
-  color: #2a2a38;
+  color: #9090b0;
   text-transform: uppercase;
 }
 
 .app-tagline {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
-  color: #2a2a38;
+  font-size: 17px;
+  color: #9090b0;
   letter-spacing: 0.1em;
 }
 
@@ -117,11 +117,11 @@ body {
 .nl-textarea {
   flex: 1;
   font-family: 'Share Tech Mono', monospace;
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1.5;
-  color: #ccccdd;
-  background: #0d0d16;
-  border: 1px solid #1e1e2e;
+  color: #f0f0f0;
+  background: #161628;
+  border: 1px solid #32324e;
   padding: 12px 14px;
   resize: none;
   outline: none;
@@ -131,23 +131,23 @@ body {
 }
 
 .nl-textarea::placeholder {
-  color: #2a2a40;
-  font-size: 12px;
+  color: #b0b0cc;
+  font-size: 18px;
 }
 
 .nl-textarea:focus {
-  border-color: #333355;
+  border-color: #5050a0;
 }
 
 .nl-textarea:disabled {
-  opacity: 0.4;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
 .nl-parse-btn {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 18px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
   padding: 0 20px;
@@ -171,8 +171,8 @@ body {
 }
 
 .nl-parse-btn:disabled {
-  border-color: #2a2a3a;
-  color: #2a2a3a;
+  border-color: #a0a0c0;
+  color: #a0a0c0;
   cursor: not-allowed;
 }
 
@@ -192,7 +192,7 @@ body {
 
 .nl-feedback {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
+  font-size: 17px;
   letter-spacing: 0.05em;
   padding: 6px 10px;
 }
@@ -212,9 +212,9 @@ body {
 /* Manual Config */
 .manual-config {
   width: 100%;
-  border: 1px solid #1a1a26;
+  border: 1px solid #2e2e4e;
   padding: 16px;
-  background: rgba(13,13,22,0.5);
+  background: rgba(20,20,40,0.5);
 }
 
 .manual-config-grid {
@@ -239,9 +239,9 @@ body {
 
 .mc-label {
   font-family: 'Syncopate', sans-serif;
-  font-size: 8px;
+  font-size: 17px;
   letter-spacing: 0.2em;
-  color: #444455;
+  color: #b0b0cc;
 }
 
 .mc-input-wrap {
@@ -252,11 +252,11 @@ body {
 
 .mc-input {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 16px;
-  color: #ccccdd;
+  font-size: 18px;
+  color: #f0f0f0;
   background: transparent;
   border: none;
-  border-bottom: 1px solid #222233;
+  border-bottom: 1px solid #3a3a58;
   padding: 2px 0;
   width: 52px;
   outline: none;
@@ -270,21 +270,21 @@ body {
 }
 
 .mc-input:focus {
-  border-bottom-color: #444466;
+  border-bottom-color: #6060a0;
 }
 
 .mc-unit {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
-  color: #333344;
+  font-size: 18px;
+  color: #a0a0c0;
 }
 
 .mc-select {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 12px;
-  color: #ccccdd;
-  background: #0d0d16;
-  border: 1px solid #222233;
+  font-size: 17px;
+  color: #f0f0f0;
+  background: #161628;
+  border: 1px solid #3a3a58;
   padding: 2px 6px;
   outline: none;
   cursor: pointer;
@@ -292,7 +292,7 @@ body {
 }
 
 .mc-apply {
-  font-size: 9px;
+  font-size: 18px;
 }
 
 /* ─── Timer section ──────────────────────────────────────────── */
@@ -307,11 +307,11 @@ body {
 .phase-label {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 26px;
   letter-spacing: 0.35em;
   text-transform: uppercase;
   margin-bottom: 16px;
-  min-height: 20px;
+  min-height: 30px;
   transition: color 0.3s ease;
 }
 
@@ -360,8 +360,8 @@ body {
 
 .round-label {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
-  color: #444455;
+  font-size: 18px;
+  color: #b0b0cc;
   margin-top: 4px;
   letter-spacing: 0.05em;
 }
@@ -369,8 +369,8 @@ body {
 /* ─── Config summary / Complete msg ──────────────────────────── */
 .config-summary {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
-  color: #222233;
+  font-size: 18px;
+  color: #b0b0d0;
   letter-spacing: 0.15em;
   margin-top: 12px;
   text-transform: uppercase;
@@ -379,7 +379,7 @@ body {
 .complete-msg {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 18px;
   letter-spacing: 0.3em;
   margin-top: 12px;
 }
@@ -402,7 +402,7 @@ body {
 .presets-section {
   width: 100%;
   margin-top: 32px;
-  border-top: 1px solid #14141e;
+  border-top: 1px solid #2a2a44;
   padding-top: 20px;
 }
 
@@ -416,21 +416,21 @@ body {
 .presets-title {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 9px;
+  font-size: 18px;
   letter-spacing: 0.3em;
-  color: #333344;
+  color: #a0a0c0;
 }
 
 .preset-save-btn {
-  font-size: 9px;
+  font-size: 12px;
   padding: 8px 14px;
 }
 
 .presets-loading,
 .presets-empty {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
-  color: #222233;
+  font-size: 18px;
+  color: #5050a0;
   padding: 12px 0;
 }
 
@@ -444,17 +444,17 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid #1a1a26;
+  border: 1px solid #2e2e4a;
   padding: 12px 14px;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
-  background: rgba(13,13,22,0.3);
+  background: rgba(20,20,40,0.3);
   min-height: 56px;
 }
 
 .preset-card:hover {
-  border-color: #333355;
-  background: rgba(20,20,35,0.6);
+  border-color: #4a4a88;
+  background: rgba(30,30,60,0.6);
 }
 
 .preset-card-inner {
@@ -464,8 +464,8 @@ body {
 
 .preset-name {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 12px;
-  color: #888899;
+  font-size: 17px;
+  color: #c0c0d8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -474,14 +474,14 @@ body {
 
 .preset-detail {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
-  color: #333344;
+  font-size: 18px;
+  color: #a0a0c0;
   letter-spacing: 0.05em;
 }
 
 .preset-delete {
   font-size: 18px;
-  color: #2a2a3a;
+  color: #5050a0;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -548,17 +548,17 @@ body {
   z-index: 10;
 }
 
-.corner-tl { top: 16px; left: 16px; border-top: 1px solid #1a1a26; border-left: 1px solid #1a1a26; }
-.corner-tr { top: 16px; right: 16px; border-top: 1px solid #1a1a26; border-right: 1px solid #1a1a26; }
-.corner-bl { bottom: 16px; left: 16px; border-bottom: 1px solid #1a1a26; border-left: 1px solid #1a1a26; }
-.corner-br { bottom: 16px; right: 16px; border-bottom: 1px solid #1a1a26; border-right: 1px solid #1a1a26; }
+.corner-tl { top: 16px; left: 16px; border-top: 1px solid #2e2e4e; border-left: 1px solid #2e2e4e; }
+.corner-tr { top: 16px; right: 16px; border-top: 1px solid #2e2e4e; border-right: 1px solid #2e2e4e; }
+.corner-bl { bottom: 16px; left: 16px; border-bottom: 1px solid #2e2e4e; border-left: 1px solid #2e2e4e; }
+.corner-br { bottom: 16px; right: 16px; border-bottom: 1px solid #2e2e4e; border-right: 1px solid #2e2e4e; }
 
 /* ─── Buttons ────────────────────────────────────────────────── */
 
 .btn-primary {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 18px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
   padding: 14px 28px;
@@ -586,12 +586,12 @@ body {
 .btn-secondary {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 18px;
   letter-spacing: 0.25em;
   text-transform: uppercase;
   padding: 14px 28px;
-  border: 1.5px solid #333344;
-  color: #888899;
+  border: 1.5px solid #4a4a66;
+  color: #b0b0cc;
   background: transparent;
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease;
@@ -601,8 +601,8 @@ body {
 }
 
 .btn-secondary:hover {
-  border-color: #888899;
-  color: #ccccdd;
+  border-color: #b0b0cc;
+  color: #e0e0f0;
 }
 
 .btn-secondary:active {
@@ -612,12 +612,12 @@ body {
 .btn-ghost {
   font-family: 'Syncopate', sans-serif;
   font-weight: 400;
-  font-size: 10px;
+  font-size: 18px;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   padding: 12px 20px;
-  border: 1px solid #1e1e2a;
-  color: #333344;
+  border: 1px solid #2e2e48;
+  color: #6060a0;
   background: transparent;
   cursor: pointer;
   transition: border-color 0.15s ease, color 0.15s ease;
@@ -627,8 +627,8 @@ body {
 }
 
 .btn-ghost:hover {
-  border-color: #333344;
-  color: #666677;
+  border-color: #4a4a70;
+  color: #9090c0;
 }
 
 .btn-ghost:active {
@@ -637,10 +637,10 @@ body {
 
 /* ─── Settings button (header gear icon) ────────────────────── */
 .settings-btn {
-  font-size: 16px;
-  color: #2a2a3a;
+  font-size: 18px;
+  color: #6060a0;
   background: transparent;
-  border: 1px solid #1a1a26;
+  border: 1px solid #2e2e4e;
   width: 36px;
   height: 36px;
   display: flex;
@@ -654,8 +654,8 @@ body {
 }
 
 .settings-btn:hover {
-  color: #666677;
-  border-color: #333344;
+  color: #9090c0;
+  border-color: #4a4a70;
 }
 
 .settings-btn:active {
@@ -684,10 +684,10 @@ body {
   left: 0;
   right: 0;
   z-index: 90;
-  background: #0d0d18;
-  border-top: 1px solid #222233;
-  border-left: 1px solid #1a1a2a;
-  border-right: 1px solid #1a1a2a;
+  background: #181830;
+  border-top: 1px solid #3a3a58;
+  border-left: 1px solid #2e2e4a;
+  border-right: 1px solid #2e2e4a;
   max-width: 640px;
   margin: 0 auto;
   transform: translateY(100%);
@@ -703,7 +703,7 @@ body {
 .settings-drag-handle {
   width: 36px;
   height: 3px;
-  background: #2a2a3a;
+  background: #4a4a70;
   border-radius: 2px;
   margin: 12px auto 0;
 }
@@ -718,14 +718,14 @@ body {
 .settings-title {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.35em;
-  color: #444455;
+  color: #b0b0d0;
 }
 
 .settings-close-btn {
-  font-size: 14px;
-  color: #333344;
+  font-size: 18px;
+  color: #6060a0;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -736,7 +736,7 @@ body {
 }
 
 .settings-close-btn:hover {
-  color: #888899;
+  color: #b0b0cc;
 }
 
 .settings-body {
@@ -753,7 +753,7 @@ body {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 0;
-  border-bottom: 1px solid #13131e;
+  border-bottom: 1px solid #252542;
   min-height: 60px;
 }
 
@@ -772,15 +772,15 @@ body {
 .settings-label {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 9px;
+  font-size: 17px;
   letter-spacing: 0.25em;
-  color: #888899;
+  color: #b0b0cc;
 }
 
 .settings-desc {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
-  color: #333344;
+  font-size: 12px;
+  color: #a0a0c0;
   letter-spacing: 0.03em;
   line-height: 1.4;
 }
@@ -795,11 +795,11 @@ body {
 .settings-seg-btn {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 8px;
+  font-size: 17px;
   letter-spacing: 0.15em;
   padding: 8px 12px;
-  border: 1px solid #222233;
-  color: #333344;
+  border: 1px solid #3a3a58;
+  color: #6a6a90;
   background: transparent;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
@@ -812,9 +812,9 @@ body {
 }
 
 .settings-seg-btn.active {
-  background: #1a1a2a;
+  background: #20203e;
   color: #00CCFF;
-  border-color: #00CCFF44;
+  border-color: #00CCFF66;
 }
 
 .settings-seg-btn:disabled {
@@ -826,11 +826,11 @@ body {
 .settings-pill {
   font-family: 'Syncopate', sans-serif;
   font-weight: 700;
-  font-size: 9px;
+  font-size: 17px;
   letter-spacing: 0.2em;
   padding: 8px 14px;
-  border: 1px solid #222233;
-  color: #333344;
+  border: 1px solid #3a3a58;
+  color: #6a6a90;
   background: transparent;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
@@ -860,11 +860,11 @@ body {
 
 .settings-number-input {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 16px;
-  color: #ccccdd;
+  font-size: 18px;
+  color: #f0f0f0;
   background: transparent;
   border: none;
-  border-bottom: 1px solid #222233;
+  border-bottom: 1px solid #3a3a58;
   padding: 2px 0;
   width: 48px;
   outline: none;
@@ -885,18 +885,18 @@ body {
 
 .settings-unit {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
-  color: #333344;
+  font-size: 18px;
+  color: #6a6a90;
 }
 
 /* ─── Settings active note ───────────────────────────────────── */
 .settings-active-note {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
-  color: #333344;
+  font-size: 12px;
+  color: #6a6a90;
   letter-spacing: 0.05em;
   padding-top: 8px;
-  border-top: 1px solid #13131e;
+  border-top: 1px solid #252542;
   margin-top: 4px;
 }
 
@@ -923,7 +923,7 @@ body {
   flex-direction: column;
   align-items: center;
   background: transparent;
-  border: 1px solid #1e1e30;
+  border: 1px solid #2e2e4e;
   padding: 4px 8px;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -934,8 +934,8 @@ body {
 }
 
 .chip-tappable:hover {
-  border-color: #333355;
-  background: rgba(255, 255, 255, 0.03);
+  border-color: #4a4a80;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .chip-tappable:active {
@@ -944,16 +944,16 @@ body {
 
 .chip-val {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 14px;
+  font-size: 18px;
   color: #00CC88;
   line-height: 1;
 }
 
 .chip-lbl {
   font-family: 'Syncopate', sans-serif;
-  font-size: 7px;
+  font-size: 18px;
   letter-spacing: 0.15em;
-  color: #333344;
+  color: #6060a0;
   line-height: 1;
 }
 
@@ -970,7 +970,7 @@ body {
 
 .chip-input {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 14px;
+  font-size: 18px;
   color: #00FF88;
   background: transparent;
   border: none;
@@ -1003,7 +1003,7 @@ body {
 /* Static chip (non-editable, e.g. SETS) */
 .chip-static {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
+  font-size: 17px;
   color: #444455;
   letter-spacing: 0.05em;
 }
@@ -1024,7 +1024,7 @@ body {
 
 .nl-total-value {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 13px;
+  font-size: 18px;
   color: #00CC88;
   letter-spacing: 0.05em;
 }
@@ -1042,7 +1042,7 @@ body {
 
 .nl-mismatch-text {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 11px;
+  font-size: 17px;
   color: #AA9900;
   letter-spacing: 0.03em;
   line-height: 1.5;
