@@ -1221,3 +1221,72 @@ body {
   color: var(--c-text-4);
   border-color: var(--c-border);
 }
+
+/* ─── Voice / Mic button ─────────────────────────────────────── */
+.nl-mic-btn {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: transparent;
+  border: 1.5px solid var(--c-border-2);
+  color: var(--c-text-3);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.nl-mic-btn:hover:not(:disabled) {
+  border-color: var(--c-border-3);
+  background: var(--c-surface-hover);
+}
+
+.nl-mic-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nl-mic-btn--listening {
+  border-color: #FF3300 !important;
+  background: rgba(255, 51, 0, 0.08) !important;
+  box-shadow: 0 0 12px rgba(255, 51, 0, 0.3), 0 0 24px rgba(255, 51, 0, 0.15);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 51, 0, 0.3), 0 0 20px rgba(255, 51, 0, 0.12); }
+  50%       { box-shadow: 0 0 16px rgba(255, 51, 0, 0.6), 0 0 32px rgba(255, 51, 0, 0.25); }
+}
+
+/* Listening status indicator */
+.nl-listening-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.nl-listening-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #FF3300;
+  flex-shrink: 0;
+  animation: listening-blink 0.8s ease-in-out infinite;
+}
+
+@keyframes listening-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+.nl-listening-text {
+  font-family: 'Syncopate', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  color: #FF3300;
+}

@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "timer.ai",
+    "slug": "timer-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "platforms": ["ios", "android"],
+    "scheme": "timerai",
+    "backgroundColor": "#1a1a2e",
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Used for voice workout input"
+      }
+    },
+    "android": {
+      "backgroundColor": "#1a1a2e",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": ["expo-av", "expo-keep-awake"]
+  }
+}

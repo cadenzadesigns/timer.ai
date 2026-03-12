@@ -4,6 +4,44 @@ import { api } from '../../convex/_generated/api';
 import type { TimerConfig } from '@timer-ai/core';
 import { makeTimerConfig } from '@timer-ai/core';
 
+// Web Speech API — minimal type declarations (not in all TS dom libs)
+interface SpeechRecognitionEvent extends Event {
+  readonly results: SpeechRecognitionResultList;
+}
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((e: SpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start(): void;
+  abort(): void;
+  stop(): void;
+}
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
+  }
+}
+
 interface Props {
   onConfig: (config: TimerConfig, name?: string) => void;
   disabled?: boolean;
@@ -90,11 +128,59 @@ export function NLInput({ onConfig, disabled }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [parsed, setParsed] = useState<ParsedResult | null>(null);
   const [editingField, setEditingField] = useState<'work' | 'rest' | 'rounds' | null>(null);
+  const [listening, setListening] = useState(false);
   const parseWorkout = useAction(api.parseWorkout.parseWorkout);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const autoParseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function handleParse() {
-    const trimmed = text.trim();
+  const hasSpeechAPI = typeof window !== 'undefined' &&
+    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+      if (autoParseTimerRef.current) clearTimeout(autoParseTimerRef.current);
+    };
+  }, []);
+
+  function startListening() {
+    if (!hasSpeechAPI) return;
+    const SpeechRecognitionClass: new () => SpeechRecognitionInstance =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognitionClass();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setListening(true);
+
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      const transcript = Array.from(e.results).map((r: SpeechRecognitionResult) => r[0].transcript).join('');
+      setText(transcript);
+      if (e.results[e.results.length - 1].isFinal) {
+        if (autoParseTimerRef.current) clearTimeout(autoParseTimerRef.current);
+        autoParseTimerRef.current = setTimeout(() => handleParse(transcript), 500);
+      }
+    };
+
+    recognition.onend = () => { setListening(false); recognitionRef.current = null; };
+    recognition.onerror = () => { setListening(false); recognitionRef.current = null; };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }
+
+  function stopListening() {
+    if (autoParseTimerRef.current) { clearTimeout(autoParseTimerRef.current); autoParseTimerRef.current = null; }
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    setListening(false);
+  }
+
+  async function handleParse(overrideText?: string) {
+    const trimmed = (overrideText ?? text).trim();
     if (!trimmed || loading) return;
     setLoading(true);
     setError(null);
@@ -121,7 +207,7 @@ export function NLInput({ onConfig, disabled }: Props) {
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleParse();
+      handleParse(undefined);
     }
   }
 
@@ -166,16 +252,34 @@ export function NLInput({ onConfig, disabled }: Props) {
           onKeyDown={handleKeyDown}
           placeholder="Describe your workout… e.g. Tabata, 30 on 15 off 6 rounds, EMOM 10 min"
           rows={2}
-          disabled={disabled || loading}
+          disabled={disabled || loading || listening}
         />
+        {hasSpeechAPI && (
+          <button
+            type="button"
+            className={`nl-mic-btn${listening ? ' nl-mic-btn--listening' : ''}`}
+            onClick={() => listening ? stopListening() : startListening()}
+            disabled={disabled || loading}
+            aria-label={listening ? 'Stop listening' : 'Speak your workout'}
+            title={listening ? 'Tap to cancel' : 'Speak your workout'}
+          >
+            🎤
+          </button>
+        )}
         <button
           className="nl-parse-btn"
-          onClick={handleParse}
-          disabled={!text.trim() || loading || disabled}
+          onClick={() => handleParse()}
+          disabled={!text.trim() || loading || disabled || listening}
         >
           {loading ? <span className="nl-spinner" /> : 'PARSE'}
         </button>
       </div>
+      {listening && (
+        <div className="nl-listening-indicator">
+          <span className="nl-listening-dot" />
+          <span className="nl-listening-text">LISTENING...</span>
+        </div>
+      )}
 
       {error && (
         <div className="nl-feedback nl-error">⚠ {error}</div>
