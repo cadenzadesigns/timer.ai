@@ -8,7 +8,7 @@
     "ios": "expo start --ios"
   },
   "dependencies": {
-    "@clerk/clerk-expo": "^2.19.31",
+    "@clerk/expo": "^3.1.2",
     "@timer-ai/core": "workspace:*",
     "convex": "^1.32.0",
     "expo": "^54.0.0",

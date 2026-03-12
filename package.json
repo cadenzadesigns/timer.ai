@@ -1,10 +1,14 @@
 {
   "name": "timer-ai",
   "private": true,
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "bun run --cwd apps/web dev",
     "build": "bun run --cwd packages/core build && bun run --cwd apps/web build",
-    "test": "bun run --cwd packages/core test"
+    "test": "bun run --cwd packages/core test",
+    "postinstall": "rm -rf node_modules/@clerk/clerk-js/node_modules/react node_modules/@clerk/clerk-react/node_modules/react node_modules/react-dom/node_modules/react"
   }
 }

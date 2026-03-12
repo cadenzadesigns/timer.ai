@@ -20,8 +20,9 @@ config.resolver.disableHierarchicalLookup = false;
 
 // Resolve .ts/.tsx source files when imports use .js extension (ESM convention)
 config.resolver.sourceExts = ['tsx', 'ts', 'jsx', 'js', 'json', 'cjs', 'mjs'];
+
+// Resolve .ts/.tsx source files when imports use .js extension (ESM convention)
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  // Rewrite .js imports to try .ts first (for workspace packages with TS source)
   if (moduleName.endsWith('.js')) {
     const tsName = moduleName.replace(/\.js$/, '.ts');
     try {

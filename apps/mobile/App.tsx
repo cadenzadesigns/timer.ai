@@ -9,14 +9,6 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
-import {
-  ClerkProvider,
-  useAuth,
-  useUser,
-  useOrganization,
-  useOrganizationList,
-  useOAuth,
-} from '@clerk/clerk-expo';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { TimerRing } from './src/components/TimerRing';
@@ -42,23 +34,6 @@ const KEEP_AWAKE_TAG = 'timer-active';
 const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
 const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 const DEFAULT_CONFIG = makeTimerConfig(20, 10, 8, 1, 0, '3-2-1');
-
-// ─── Clerk token cache (expo-secure-store) ────────────────────────────────────
-
-const tokenCache = {
-  async getToken(key: string) {
-    try { return await SecureStore.getItemAsync(key); }
-    catch { return null; }
-  },
-  async saveToken(key: string, value: string) {
-    try { await SecureStore.setItemAsync(key, value); }
-    catch { /* silent */ }
-  },
-  async clearToken(key: string) {
-    try { await SecureStore.deleteItemAsync(key); }
-    catch { /* silent */ }
-  },
-};
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 
@@ -166,6 +141,165 @@ async function convexCall(
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
   const json = await res.json();
   return json.value ?? json;
+}
+
+// ─── Clerk Browser-Based Auth ─────────────────────────────────────────────────
+
+const CLERK_DOMAIN = 'https://certain-halibut-13.clerk.accounts.dev';
+const CLERK_SESSION_ID_KEY  = 'clerk_session_id';
+const CLERK_SESSION_TOK_KEY = 'clerk_session_token';
+
+interface ClerkUserInfo { email: string; name: string | null }
+
+async function clerkFapi(path: string, init: RequestInit = {}): Promise<any> {
+  const res = await fetch(`${CLERK_DOMAIN}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Clerk ${path} → ${res.status}: ${text.slice(0, 120)}`);
+  }
+  return res.json();
+}
+
+async function clerkExchangeTicket(ticket: string): Promise<{ sessionId: string; sessionToken: string }> {
+  const data = await clerkFapi(`/v1/client?__clerk_ticket=${encodeURIComponent(ticket)}`);
+  // Clerk FAPI wraps response under `response` or directly under `client`
+  const sessions: any[] = data?.response?.sessions ?? data?.client?.sessions ?? [];
+  const session = sessions[0];
+  if (!session) throw new Error('No session returned from Clerk ticket exchange');
+  const sessionToken = session.last_active_token?.jwt ?? '';
+  if (!sessionToken) throw new Error('Clerk returned no session token');
+  return { sessionId: session.id as string, sessionToken };
+}
+
+async function clerkGetConvexJwt(sessionId: string, sessionToken: string): Promise<{ jwt: string; expiry: number }> {
+  const data = await clerkFapi(`/v1/client/sessions/${sessionId}/tokens/convex`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  const jwt: string = data.jwt;
+  if (!jwt) throw new Error('Clerk returned no Convex JWT');
+  return { jwt, expiry: Date.now() + 50_000 }; // refresh 10s before 60s expiry
+}
+
+async function clerkGetUserInfo(sessionId: string, sessionToken: string): Promise<ClerkUserInfo> {
+  try {
+    const data = await clerkFapi('/v1/client', {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    const sessions: any[] = data?.response?.sessions ?? data?.client?.sessions ?? [];
+    const session = sessions.find((s: any) => s.id === sessionId) ?? sessions[0];
+    const user = session?.user;
+    if (!user) return { email: '', name: null };
+    const email: string = user.email_addresses?.[0]?.email_address ?? '';
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || null;
+    return { email, name };
+  } catch { return { email: '', name: null }; }
+}
+
+function useClerkAuth() {
+  const [sessionId,     setSessionId]     = useState<string | null>(null);
+  const [sessionToken,  setSessionToken]  = useState<string | null>(null);
+  const [convexToken,   setConvexToken]   = useState<string | null>(null);
+  const [convexExpiry,  setConvexExpiry]  = useState<number | null>(null);
+  const [userInfo,      setUserInfo]      = useState<ClerkUserInfo | null>(null);
+  const [authLoading,   setAuthLoading]   = useState(!!CLERK_KEY);
+
+  // Stable refs so callbacks don't need to re-create on every state change
+  const sidRef    = useRef<string | null>(null);
+  const stokRef   = useRef<string | null>(null);
+  const cvxRef    = useRef<string | null>(null);
+  const cvxExpRef = useRef<number | null>(null);
+  sidRef.current    = sessionId;
+  stokRef.current   = sessionToken;
+  cvxRef.current    = convexToken;
+  cvxExpRef.current = convexExpiry;
+
+  // Restore session from SecureStore on mount
+  useEffect(() => {
+    if (!CLERK_KEY) return;
+    (async () => {
+      try {
+        const sid  = await SecureStore.getItemAsync(CLERK_SESSION_ID_KEY);
+        const stok = await SecureStore.getItemAsync(CLERK_SESSION_TOK_KEY);
+        if (sid && stok) {
+          const { jwt, expiry } = await clerkGetConvexJwt(sid, stok);
+          const info = await clerkGetUserInfo(sid, stok);
+          setSessionId(sid);
+          setSessionToken(stok);
+          setConvexToken(jwt);
+          setConvexExpiry(expiry);
+          setUserInfo(info);
+        }
+      } catch {
+        // Stale / revoked session — purge storage
+        await SecureStore.deleteItemAsync(CLERK_SESSION_ID_KEY).catch(() => null);
+        await SecureStore.deleteItemAsync(CLERK_SESSION_TOK_KEY).catch(() => null);
+      } finally {
+        setAuthLoading(false);
+      }
+    })();
+  }, []);
+
+  const getConvexToken = useCallback(async (): Promise<string | null> => {
+    const sid  = sidRef.current;
+    const stok = stokRef.current;
+    if (!sid || !stok) return null;
+    // Return cached token if still fresh
+    if (cvxRef.current && cvxExpRef.current && Date.now() < cvxExpRef.current) {
+      return cvxRef.current;
+    }
+    try {
+      const { jwt, expiry } = await clerkGetConvexJwt(sid, stok);
+      setConvexToken(jwt);
+      setConvexExpiry(expiry);
+      cvxRef.current    = jwt;
+      cvxExpRef.current = expiry;
+      return jwt;
+    } catch { return null; }
+  }, []); // stable — reads via refs
+
+  const signIn = useCallback(async (): Promise<void> => {
+    if (!CLERK_KEY) return;
+    const redirectUri = makeRedirectUri({ scheme: 'timerai', path: 'callback' });
+    const signInUrl = `${CLERK_DOMAIN}/sign-in?redirect_url=${encodeURIComponent(redirectUri)}`;
+    const result = await WebBrowser.openAuthSessionAsync(signInUrl, redirectUri);
+    if (result.type !== 'success') throw new Error('Sign-in cancelled or dismissed');
+
+    // Parse ticket from redirect URL without relying on URL constructor polyfill
+    const rawUrl: string = result.url;
+    const qIdx = rawUrl.indexOf('?');
+    const params = new URLSearchParams(qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '');
+    const ticket = params.get('__clerk_ticket');
+    if (!ticket) throw new Error('No __clerk_ticket in redirect — check Clerk sign-in URL config');
+
+    const { sessionId: sid, sessionToken: stok } = await clerkExchangeTicket(ticket);
+    const { jwt, expiry } = await clerkGetConvexJwt(sid, stok);
+    const info = await clerkGetUserInfo(sid, stok);
+
+    await SecureStore.setItemAsync(CLERK_SESSION_ID_KEY,  sid);
+    await SecureStore.setItemAsync(CLERK_SESSION_TOK_KEY, stok);
+
+    setSessionId(sid);
+    setSessionToken(stok);
+    setConvexToken(jwt);
+    setConvexExpiry(expiry);
+    setUserInfo(info);
+  }, []);
+
+  const signOut = useCallback(async (): Promise<void> => {
+    await SecureStore.deleteItemAsync(CLERK_SESSION_ID_KEY).catch(() => null);
+    await SecureStore.deleteItemAsync(CLERK_SESSION_TOK_KEY).catch(() => null);
+    setSessionId(null);
+    setSessionToken(null);
+    setConvexToken(null);
+    setConvexExpiry(null);
+    setUserInfo(null);
+  }, []);
+
+  return { isSignedIn: !!sessionId, userInfo, authLoading, signIn, signOut, getConvexToken };
 }
 
 // ─── EditableChip ─────────────────────────────────────────────────────────────
@@ -322,29 +456,24 @@ function SettingsRow({ label, desc, children, C }: {
   );
 }
 
-// ─── Clerk: Sign-In Modal ─────────────────────────────────────────────────────
-// Only rendered inside ClerkProvider
+// ─── Browser-Based Sign-In Modal ─────────────────────────────────────────────
+// Opens Clerk's hosted sign-in page via expo-web-browser; no ClerkProvider needed.
 
-function ClerkSignInModal({ visible, onClose, C }: {
+function BrowserSignInModal({ visible, onClose, onSignIn, C }: {
   visible: boolean;
   onClose: () => void;
+  onSignIn: () => Promise<void>;
   C: Colors;
 }) {
-  const { startOAuthFlow: googleOAuth } = useOAuth({ strategy: 'oauth_google' });
-  const { startOAuthFlow: githubOAuth } = useOAuth({ strategy: 'oauth_github' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleOAuth(startFlow: typeof googleOAuth) {
+  async function handleSignIn() {
     setBusy(true);
     setError(null);
     try {
-      const redirectUrl = makeRedirectUri({ scheme: 'timerai', path: 'oauth-callback' });
-      const { createdSessionId, setActive } = await startFlow({ redirectUrl });
-      if (createdSessionId && setActive) {
-        await setActive({ session: createdSessionId });
-        onClose();
-      }
+      await onSignIn();
+      onClose();
     } catch (e: any) {
       setError(e?.message ?? 'Sign-in failed. Try again.');
     } finally {
@@ -381,29 +510,22 @@ function ClerkSignInModal({ visible, onClose, C }: {
           )}
 
           <TouchableOpacity
-            style={[siS.oauthBtn, { borderColor: C.border2, backgroundColor: C.surface2 }]}
-            onPress={() => handleOAuth(googleOAuth)}
+            style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
+            onPress={handleSignIn}
             disabled={busy}
             activeOpacity={0.7}
           >
             {busy
               ? <ActivityIndicator size="small" color={C.accent} />
-              : <Text style={[siS.oauthBtnText, { color: C.text2, fontFamily: C.mono }]}>
-                  CONTINUE WITH GOOGLE
+              : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>
+                  SIGN IN
                 </Text>
             }
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[siS.oauthBtn, { borderColor: C.border2, backgroundColor: C.surface2 }]}
-            onPress={() => handleOAuth(githubOAuth)}
-            disabled={busy}
-            activeOpacity={0.7}
-          >
-            <Text style={[siS.oauthBtnText, { color: C.text2, fontFamily: C.mono }]}>
-              CONTINUE WITH GITHUB
-            </Text>
-          </TouchableOpacity>
+          <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono, marginTop: 4 }]}>
+            A browser window will open to complete sign-in securely.
+          </Text>
         </View>
       </View>
     </Modal>
@@ -444,19 +566,16 @@ const siS = StyleSheet.create({
   oauthBtnText: { fontSize: 12, fontWeight: '700', letterSpacing: 2 },
 });
 
-// ─── Clerk: User section in settings ─────────────────────────────────────────
-// Only rendered inside ClerkProvider
+// ─── User section in settings ─────────────────────────────────────────────────
+// Props-based — no Clerk hooks, works without ClerkProvider.
 
-function ClerkUserSection({ C, onSignIn }: { C: Colors; onSignIn: () => void }) {
-  const { isSignedIn, user } = useUser();
-  const { signOut } = useAuth();
-  const { organization } = useOrganization();
-  const { userMemberships, setActive } = useOrganizationList({
-    userMemberships: { infinite: true },
-  });
-
-  const orgs = (userMemberships?.data ?? []).map((m: any) => m.organization);
-
+function UserSection({ C, isSignedIn, userInfo, onSignIn, onSignOut }: {
+  C: Colors;
+  isSignedIn: boolean;
+  userInfo: ClerkUserInfo | null;
+  onSignIn: () => void;
+  onSignOut: () => void;
+}) {
   if (!isSignedIn) {
     return (
       <View style={[authS.section, { borderBottomColor: C.border }]}>
@@ -477,81 +596,34 @@ function ClerkUserSection({ C, onSignIn }: { C: Colors; onSignIn: () => void }) 
     );
   }
 
-  return (
-    <>
-      {/* User info + sign out */}
-      <View style={[authS.section, { borderBottomColor: C.border }]}>
-        <Text style={[authS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>ACCOUNT</Text>
-        <View style={authS.userRow}>
-          <View style={authS.userInfo}>
-            <Text style={[authS.userEmail, { color: C.text2, fontFamily: C.mono }]} numberOfLines={1}>
-              {user?.primaryEmailAddress?.emailAddress ?? user?.username ?? 'Signed in'}
-            </Text>
-            {organization && (
-              <Text style={[authS.userOrg, { color: C.text4, fontFamily: C.mono }]} numberOfLines={1}>
-                {organization.name}
-              </Text>
-            )}
-          </View>
-          <TouchableOpacity
-            style={[authS.signOutBtn, { borderColor: C.border2 }]}
-            onPress={() => signOut()}
-            activeOpacity={0.7}
-          >
-            <Text style={[authS.signOutText, { color: C.text4, fontFamily: C.mono }]}>
-              SIGN OUT
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+  const displayName = userInfo?.name || userInfo?.email || 'Signed in';
+  const displayEmail = userInfo?.name && userInfo?.email ? userInfo.email : null;
 
-      {/* Org switcher */}
-      {orgs.length > 0 && (
-        <View style={[authS.section, { borderBottomColor: C.border }]}>
-          <Text style={[authS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>WORKSPACE</Text>
-          {/* Personal */}
-          <TouchableOpacity
-            style={[
-              authS.orgRow,
-              { borderColor: C.border },
-              !organization && { borderColor: C.accent, backgroundColor: 'rgba(255,51,0,0.07)' },
-            ]}
-            onPress={() => setActive?.({ organization: null })}
-            activeOpacity={0.7}
-          >
-            <Text style={[authS.orgName, { color: !organization ? C.accent : C.text3, fontFamily: C.mono }]}>
-              PERSONAL
+  return (
+    <View style={[authS.section, { borderBottomColor: C.border }]}>
+      <Text style={[authS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>ACCOUNT</Text>
+      <View style={authS.userRow}>
+        <View style={authS.userInfo}>
+          <Text style={[authS.userEmail, { color: C.text2, fontFamily: C.mono }]} numberOfLines={1}>
+            {displayName}
+          </Text>
+          {displayEmail && (
+            <Text style={[authS.userOrg, { color: C.text4, fontFamily: C.mono }]} numberOfLines={1}>
+              {displayEmail}
             </Text>
-            {!organization && (
-              <Text style={[authS.orgActive, { color: C.accent, fontFamily: C.mono }]}>●</Text>
-            )}
-          </TouchableOpacity>
-          {/* Orgs */}
-          {orgs.map((org: any) => {
-            const active = organization?.id === org.id;
-            return (
-              <TouchableOpacity
-                key={org.id}
-                style={[
-                  authS.orgRow,
-                  { borderColor: C.border },
-                  active && { borderColor: C.accent, backgroundColor: 'rgba(255,51,0,0.07)' },
-                ]}
-                onPress={() => setActive?.({ organization: org.id })}
-                activeOpacity={0.7}
-              >
-                <Text style={[authS.orgName, { color: active ? C.accent : C.text3, fontFamily: C.mono }]}>
-                  {org.name.toUpperCase()}
-                </Text>
-                {active && (
-                  <Text style={[authS.orgActive, { color: C.accent, fontFamily: C.mono }]}>●</Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
+          )}
         </View>
-      )}
-    </>
+        <TouchableOpacity
+          style={[authS.signOutBtn, { borderColor: C.border2 }]}
+          onPress={onSignOut}
+          activeOpacity={0.7}
+        >
+          <Text style={[authS.signOutText, { color: C.text4, fontFamily: C.mono }]}>
+            SIGN OUT
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
@@ -595,26 +667,26 @@ const authA = StyleSheet.create({
   hint: { fontSize: 11, letterSpacing: 0.5, opacity: 0.7 },
 });
 
-// ─── Clerk: Auth-aware presets section ───────────────────────────────────────
-// Only rendered inside ClerkProvider
+// ─── Auth-aware presets section ───────────────────────────────────────────────
+// Props-based — receives getConvexToken instead of using Clerk hooks.
 
-function ClerkAwarePresets({
+function AuthAwarePresets({
   isTimerActive, config, lastDescription, onLoad, C,
+  isSignedIn, getConvexToken,
 }: {
   isTimerActive: boolean;
   config: TimerConfig;
   lastDescription: string;
   onLoad: (c: TimerConfig, name: string) => void;
   C: Colors;
+  isSignedIn: boolean;
+  getConvexToken: () => Promise<string | null>;
 }) {
-  const { isSignedIn, getToken } = useAuth();
-  const { organization } = useOrganization();
   const [presets, setPresets] = useState<{ personal: Preset[]; org: Preset[] }>({
     personal: [],
     org: [],
   });
   const [savingPreset, setSavingPreset] = useState(false);
-  const [scope, setScope] = useState<'personal' | 'org'>('personal');
 
   const fetchWithAuth = useCallback(async (
     endpoint: 'query' | 'mutation' | 'action',
@@ -622,10 +694,9 @@ function ClerkAwarePresets({
     args: object,
   ) => {
     if (!CONVEX_URL) return null;
-    // 'convex' is the Clerk JWT template name — configure in Clerk dashboard
-    const token = isSignedIn ? await getToken({ template: 'convex' }) : null;
+    const token = isSignedIn ? await getConvexToken() : null;
     return convexCall(endpoint, path, args, token);
-  }, [isSignedIn, getToken]);
+  }, [isSignedIn, getConvexToken]);
 
   const loadPresets = useCallback(async () => {
     if (!isSignedIn) { setPresets({ personal: [], org: [] }); return; }
@@ -637,7 +708,7 @@ function ClerkAwarePresets({
     } catch { /* silent */ }
   }, [fetchWithAuth, isSignedIn]);
 
-  useEffect(() => { loadPresets(); }, [isSignedIn, organization?.id]);
+  useEffect(() => { loadPresets(); }, [isSignedIn]);
 
   async function handleSavePreset() {
     if (savingPreset || isTimerActive || !isSignedIn) return;
@@ -646,12 +717,11 @@ function ClerkAwarePresets({
       : `${config.work}s · ${config.rest}s · ${config.infinite ? '∞' : config.rounds + 'R'}`;
     setSavingPreset(true);
     try {
-      const effectiveScope = organization ? scope : 'personal';
       await fetchWithAuth('mutation', 'presets:create', {
         name,
         config,
         description: lastDescription || '',
-        scope: effectiveScope,
+        scope: 'personal',
       });
       await loadPresets();
     } catch { /* silent */ }
@@ -675,31 +745,6 @@ function ClerkAwarePresets({
 
       {/* Save row */}
       <View style={S.presetsTitleRow}>
-        {/* Scope toggle when in org */}
-        {isSignedIn && organization && (
-          <View style={presS.scopeToggle}>
-            {(['personal', 'org'] as const).map(s => (
-              <TouchableOpacity
-                key={s}
-                style={[
-                  presS.scopeBtn,
-                  { borderColor: C.border2 },
-                  scope === s && { backgroundColor: C.accent, borderColor: C.accent },
-                ]}
-                onPress={() => setScope(s)}
-                activeOpacity={0.7}
-              >
-                <Text style={[presS.scopeBtnText, {
-                  color: scope === s ? '#fff' : C.text4,
-                  fontFamily: C.mono,
-                }]}>
-                  {s === 'personal' ? 'PERSONAL' : 'TEAM'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
         {isSignedIn ? (
           <TouchableOpacity
             style={[S.saveBtn, {
@@ -734,11 +779,6 @@ function ClerkAwarePresets({
           <>
             {presets.personal.length > 0 && (
               <>
-                {organization && (
-                  <Text style={[presS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>
-                    PERSONAL
-                  </Text>
-                )}
                 {presets.personal.map(p => (
                   <PresetCard
                     key={p._id}
@@ -754,7 +794,7 @@ function ClerkAwarePresets({
             {presets.org.length > 0 && (
               <>
                 <Text style={[presS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>
-                  {organization ? `TEAM · ${organization.name.toUpperCase()}` : 'TEAM'}
+                  TEAM
                 </Text>
                 {presets.org.map(p => (
                   <PresetCard
@@ -889,7 +929,10 @@ interface SettingsSheetProps {
   onThemeToggle: () => void;
   isTimerActive: boolean;
   clerkEnabled: boolean;
+  isSignedIn: boolean;
+  userInfo: ClerkUserInfo | null;
   onSignIn: () => void;
+  onSignOut: () => void;
   C: Colors;
 }
 
@@ -899,7 +942,7 @@ function SettingsSheet({
   soundEnabled, onSoundToggle,
   keepScreenOn, onKeepScreenToggle,
   theme, onThemeToggle,
-  isTimerActive, clerkEnabled, onSignIn, C,
+  isTimerActive, clerkEnabled, isSignedIn, userInfo, onSignIn, onSignOut, C,
 }: SettingsSheetProps) {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const [setRestDraft, setSetRestDraft] = useState(String(config.restBetweenSets));
@@ -967,8 +1010,16 @@ function SettingsSheet({
         </View>
 
         <ScrollView style={settS.body} showsVerticalScrollIndicator={false}>
-          {/* Clerk: User account + org switcher */}
-          {clerkEnabled && <ClerkUserSection C={C} onSignIn={onSignIn} />}
+          {/* Account section */}
+          {clerkEnabled && (
+            <UserSection
+              C={C}
+              isSignedIn={isSignedIn}
+              userInfo={userInfo}
+              onSignIn={onSignIn}
+              onSignOut={onSignOut}
+            />
+          )}
 
           {/* Countdown mode */}
           <SettingsRow
@@ -1138,6 +1189,9 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
   // Theme
   const [theme, setTheme] = useState<Theme>('dark');
   const C = theme === 'dark' ? DARK : LIGHT;
+
+  // Auth (browser-based Clerk flow — no ClerkProvider)
+  const { isSignedIn, userInfo, signIn, signOut, getConvexToken } = useClerkAuth();
 
   // Config
   const [config, setConfig] = useState<TimerConfig>(DEFAULT_CONFIG);
@@ -1595,12 +1649,14 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
 
           {/* ── Presets ────────────────────────────────────────── */}
           {!!CONVEX_URL && clerkEnabled && (
-            <ClerkAwarePresets
+            <AuthAwarePresets
               isTimerActive={isTimerActive}
               config={config}
               lastDescription={lastDescription}
               onLoad={(c, name) => handleConfig(c, name)}
               C={C}
+              isSignedIn={isSignedIn}
+              getConvexToken={getConvexToken}
             />
           )}
 
@@ -1622,15 +1678,19 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         isTimerActive={isTimerActive}
         clerkEnabled={clerkEnabled}
+        isSignedIn={isSignedIn}
+        userInfo={userInfo}
         onSignIn={() => { setSettingsOpen(false); setSignInOpen(true); }}
+        onSignOut={signOut}
         C={C}
       />
 
       {/* Sign-in modal (Clerk only) */}
       {clerkEnabled && (
-        <ClerkSignInModal
+        <BrowserSignInModal
           visible={signInOpen}
           onClose={() => setSignInOpen(false)}
+          onSignIn={signIn}
           C={DARK} // always dark for modal
         />
       )}
@@ -1874,16 +1934,9 @@ const S = StyleSheet.create({
   },
 });
 
-// ─── Root — conditionally wraps with ClerkProvider ────────────────────────────
+// ─── Root ─────────────────────────────────────────────────────────────────────
+// No ClerkProvider needed — auth is handled via browser-based flow in useClerkAuth.
 
 export default function App() {
-  if (!CLERK_KEY) {
-    return <AppContent clerkEnabled={false} />;
-  }
-
-  return (
-    <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
-      <AppContent clerkEnabled={true} />
-    </ClerkProvider>
-  );
+  return <AppContent clerkEnabled={!!CLERK_KEY} />;
 }
