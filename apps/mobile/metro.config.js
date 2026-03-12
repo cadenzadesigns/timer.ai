@@ -18,4 +18,19 @@ config.resolver.nodeModulesPaths = [
 // Prevent Metro from deduplicating react/react-native across workspaces
 config.resolver.disableHierarchicalLookup = false;
 
+// Resolve .ts/.tsx source files when imports use .js extension (ESM convention)
+config.resolver.sourceExts = ['tsx', 'ts', 'jsx', 'js', 'json', 'cjs', 'mjs'];
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Rewrite .js imports to try .ts first (for workspace packages with TS source)
+  if (moduleName.endsWith('.js')) {
+    const tsName = moduleName.replace(/\.js$/, '.ts');
+    try {
+      return context.resolveRequest(context, tsName, platform);
+    } catch {
+      // fall through to default
+    }
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;

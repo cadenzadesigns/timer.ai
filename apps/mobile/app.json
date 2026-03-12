@@ -18,6 +18,6 @@
       "backgroundColor": "#1a1a2e",
       "permissions": ["RECORD_AUDIO"]
     },
-    "plugins": ["expo-av", "expo-keep-awake"]
+    "plugins": ["expo-av"]
   }
 }

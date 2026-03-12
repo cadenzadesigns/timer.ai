@@ -1,0 +1,3 @@
+[install]
+# Use hoisted (classic) layout so Metro/Node can resolve packages
+linker = "hoisted"

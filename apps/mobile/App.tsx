@@ -1,19 +1,66 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Dimensions, Platform, ActivityIndicator, Alert,
+  StyleSheet, Dimensions, Platform, ActivityIndicator,
+  Modal, Animated, KeyboardAvoidingView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useKeepAwake } from 'expo-keep-awake';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { TimerRing } from './src/components/TimerRing';
 import { useTimer } from './src/hooks/useTimer';
 import { useAudio } from './src/hooks/useAudio';
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
+type Theme = 'dark' | 'light';
+
+const MONO = Platform.select({
+  ios: 'Courier New',
+  android: 'monospace',
+  default: 'monospace',
+}) as string;
+
+const { width: SW } = Dimensions.get('window');
+const RING_SIZE = Math.min(SW - 56, 300);
+const KEEP_AWAKE_TAG = 'timer-active';
+const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
 const DEFAULT_CONFIG = makeTimerConfig(20, 10, 8, 1, 0, '3-2-1');
+
+// ─── Theme ────────────────────────────────────────────────────────────────────
+
+const DARK = {
+  bg:        '#1a1a2e',
+  surface:   '#181830',
+  surface2:  '#161628',
+  border:    '#2e2e4e',
+  border2:   '#3a3a58',
+  text:      '#f0f0f0',
+  text2:     '#b0b0cc',
+  text3:     '#a0a0c0',
+  text4:     '#6060a0',
+  accent:    '#FF3300',
+  mono:      MONO,
+};
+
+const LIGHT = {
+  bg:        '#f0f0ea',
+  surface:   '#e8e8e2',
+  surface2:  '#e0e0da',
+  border:    '#c4c4d8',
+  border2:   '#b4b4cc',
+  text:      '#18182c',
+  text2:     '#4a4a6a',
+  text3:     '#5a5a80',
+  text4:     '#7070a0',
+  accent:    '#FF3300',
+  mono:      MONO,
+};
+
+type Colors = typeof DARK;
+
+// ─── Phase Data ───────────────────────────────────────────────────────────────
 
 const PHASE_COLOR: Record<TimerPhase, string> = {
   IDLE:               '#4a4a5a',
@@ -33,11 +80,7 @@ const PHASE_LABEL: Record<TimerPhase, string> = {
   COMPLETE:           'DONE',
 };
 
-const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
-const { width: SW } = Dimensions.get('window');
-const RING_SIZE = Math.min(SW - 80, 280);
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtTotal(s: number): string {
   const m = Math.floor(s / 60);
@@ -45,91 +88,682 @@ function fmtTotal(s: number): string {
   return m > 0 ? `${m}m${sec > 0 ? ' ' + sec + 's' : ''}` : `${sec}s`;
 }
 
-async function convexParseWorkout(description: string): Promise<TimerConfig & { name?: string }> {
-  if (!CONVEX_URL) throw new Error('EXPO_PUBLIC_CONVEX_URL not set');
+function fmtElapsed(s: number): string {
+  return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
+function computeTotal(work: number, rest: number, rounds: number, config: TimerConfig): number {
+  return (work + rest) * rounds * config.sets
+    + config.restBetweenSets * Math.max(0, config.sets - 1);
+}
+
+// ─── Convex HTTP Helpers ──────────────────────────────────────────────────────
+
+async function convexAction<T>(path: string, args: object): Promise<T> {
   const res = await fetch(`${CONVEX_URL}/api/action`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: 'parseWorkout:parseWorkout', args: { description } }),
+    body: JSON.stringify({ path, args }),
   });
-  if (!res.ok) throw new Error(`Parse failed (${res.status})`);
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
   const json = await res.json();
-  // Convex HTTP API wraps the return value in { value: ... }
-  return json.value ?? json;
+  return (json.value ?? json) as T;
 }
 
-// ─── Preset card ────────────────────────────────────────────────────────────
+async function convexQuery<T>(path: string, args: object): Promise<T> {
+  const res = await fetch(`${CONVEX_URL}/api/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, args }),
+  });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  const json = await res.json();
+  return (json.value ?? json) as T;
+}
+
+async function convexMutation(path: string, args: object): Promise<void> {
+  const res = await fetch(`${CONVEX_URL}/api/mutation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, args }),
+  });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Preset {
   _id: string;
   name: string;
+  description?: string;
   config: TimerConfig;
 }
 
-function PresetCard({ preset, onLoad }: { preset: Preset; onLoad: () => void }) {
-  const c = preset.config;
-  return (
-    <TouchableOpacity style={styles.presetCard} onPress={onLoad} activeOpacity={0.7}>
-      <View style={styles.presetInner}>
-        <Text style={styles.presetName} numberOfLines={1}>{preset.name}</Text>
-        <Text style={styles.presetDetail}>
-          {c.work}s · {c.rest}s · {c.infinite ? '∞' : c.rounds + 'R'}
-          {c.sets > 1 ? ` · ${c.sets}S` : ''}
+interface ParsedResult {
+  config: TimerConfig;
+  requestedTotalSeconds?: number;
+  work: number;
+  rest: number;
+  rounds: number;
+  dismissedWarning: boolean;
+}
+
+// ─── EditableChip ─────────────────────────────────────────────────────────────
+
+interface EditableChipProps {
+  value: number;
+  unit?: string;
+  label: string;
+  editing: boolean;
+  onTap: () => void;
+  onChange: (v: number) => void;
+  onBlur: () => void;
+  min?: number;
+  max?: number;
+  C: Colors;
+}
+
+function EditableChip({
+  value, unit = '', label,
+  editing, onTap, onChange, onBlur,
+  min = 0, max = 9999, C,
+}: EditableChipProps) {
+  const inputRef = useRef<TextInput>(null);
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(String(value));
+      const t = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <View style={chipS.editRow}>
+        <TextInput
+          ref={inputRef}
+          style={[chipS.input, {
+            color: C.text,
+            backgroundColor: C.surface2,
+            borderColor: C.accent,
+            fontFamily: C.mono,
+          }]}
+          value={draft}
+          onChangeText={setDraft}
+          keyboardType="number-pad"
+          selectTextOnFocus
+          onBlur={() => {
+            const v = Math.max(min, Math.min(max, Number(draft) || value));
+            onChange(v);
+            onBlur();
+          }}
+          onSubmitEditing={() => {
+            const v = Math.max(min, Math.min(max, Number(draft) || value));
+            onChange(v);
+            onBlur();
+          }}
+        />
+        <Text style={[chipS.editLabel, { color: C.text4, fontFamily: C.mono }]}>
+          {unit ? unit + ' ' : ''}{label}
         </Text>
       </View>
+    );
+  }
+
+  return (
+    <TouchableOpacity
+      onPress={onTap}
+      style={[chipS.chip, { borderColor: C.border2, backgroundColor: C.surface2 }]}
+      activeOpacity={0.65}
+    >
+      <Text style={[chipS.val, { color: C.text, fontFamily: C.mono }]}>{value}{unit}</Text>
+      <Text style={[chipS.lbl, { color: C.text4, fontFamily: C.mono }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-// ─── App ────────────────────────────────────────────────────────────────────
+const chipS = StyleSheet.create({
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+  },
+  val:       { fontSize: 15, fontWeight: '700' },
+  lbl:       { fontSize: 11, letterSpacing: 1 },
+  editRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  input: {
+    width: 68,
+    height: 36,
+    borderWidth: 1.5,
+    paddingHorizontal: 8,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  editLabel: { fontSize: 12, letterSpacing: 0.5 },
+});
+
+// ─── TogglePill ───────────────────────────────────────────────────────────────
+
+function TogglePill({ value, onToggle, label, C }: {
+  value: boolean;
+  onToggle: () => void;
+  label?: string;
+  C: Colors;
+}) {
+  return (
+    <TouchableOpacity
+      style={[pillS.pill, {
+        borderColor: value ? C.accent : C.border2,
+        backgroundColor: value ? C.accent : 'transparent',
+      }]}
+      onPress={onToggle}
+      activeOpacity={0.7}
+    >
+      <Text style={[pillS.text, { color: value ? '#fff' : C.text3, fontFamily: C.mono }]}>
+        {label ?? (value ? 'ON' : 'OFF')}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+const pillS = StyleSheet.create({
+  pill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+    minWidth: 64,
+    alignItems: 'center',
+  },
+  text: { fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
+});
+
+// ─── SettingsRow ──────────────────────────────────────────────────────────────
+
+function SettingsRow({ label, desc, children, C }: {
+  label: string;
+  desc: string;
+  children: React.ReactNode;
+  C: Colors;
+}) {
+  return (
+    <View style={[settS.row, { borderBottomColor: C.border }]}>
+      <View style={settS.rowInfo}>
+        <Text style={[settS.rowLabel, { color: C.text2, fontFamily: C.mono }]}>{label}</Text>
+        <Text style={[settS.rowDesc, { color: C.text4, fontFamily: C.mono }]}>{desc}</Text>
+      </View>
+      <View style={settS.rowControl}>{children}</View>
+    </View>
+  );
+}
+
+// ─── SettingsSheet ────────────────────────────────────────────────────────────
+
+interface SettingsSheetProps {
+  visible: boolean;
+  onClose: () => void;
+  config: TimerConfig;
+  onConfigChange: (c: TimerConfig) => void;
+  soundEnabled: boolean;
+  onSoundToggle: () => void;
+  keepScreenOn: boolean;
+  onKeepScreenToggle: () => void;
+  theme: Theme;
+  onThemeToggle: () => void;
+  isTimerActive: boolean;
+  C: Colors;
+}
+
+function SettingsSheet({
+  visible, onClose,
+  config, onConfigChange,
+  soundEnabled, onSoundToggle,
+  keepScreenOn, onKeepScreenToggle,
+  theme, onThemeToggle,
+  isTimerActive, C,
+}: SettingsSheetProps) {
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const [setRestDraft, setSetRestDraft] = useState(String(config.restBetweenSets));
+
+  useEffect(() => {
+    setSetRestDraft(String(config.restBetweenSets));
+  }, [config.restBetweenSets]);
+
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: visible ? 1 : 0,
+      tension: 70,
+      friction: 12,
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  const translateY = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [800, 0],
+  });
+
+  function changeCountdown(mode: '3-2-1' | 'single') {
+    if (!isTimerActive) {
+      onConfigChange(makeTimerConfig(
+        config.work, config.rest, config.rounds,
+        config.sets, config.restBetweenSets, mode, config.infinite,
+      ));
+    }
+  }
+
+  function applySetRest() {
+    if (!isTimerActive) {
+      const v = Math.max(0, Math.min(600, Number(setRestDraft) || 0));
+      onConfigChange(makeTimerConfig(
+        config.work, config.rest, config.rounds,
+        config.sets, v, config.countdown, config.infinite,
+      ));
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <TouchableOpacity style={settS.backdrop} activeOpacity={1} onPress={onClose} />
+
+      <Animated.View style={[
+        settS.sheet,
+        { backgroundColor: C.surface, borderTopColor: C.border2, transform: [{ translateY }] },
+      ]}>
+        {/* Drag handle */}
+        <View style={[settS.dragHandle, { backgroundColor: C.border2 }]} />
+
+        {/* Header */}
+        <View style={[settS.header, { borderBottomColor: C.border }]}>
+          <View style={settS.headerLeft}>
+            <View style={[settS.headerAccent, { backgroundColor: C.accent }]} />
+            <Text style={[settS.title, { color: C.text2, fontFamily: C.mono }]}>SETTINGS</Text>
+          </View>
+          <TouchableOpacity
+            onPress={onClose}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+          >
+            <Text style={[settS.closeBtn, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={settS.body} showsVerticalScrollIndicator={false}>
+          {/* Countdown mode */}
+          <SettingsRow
+            label="COUNTDOWN"
+            desc={config.countdown === '3-2-1'
+              ? '3-2-1: Three beeps before each work phase'
+              : 'Single: One beep to start'}
+            C={C}
+          >
+            <View style={settS.segGroup}>
+              {(['3-2-1', 'single'] as const).map(mode => (
+                <TouchableOpacity
+                  key={mode}
+                  style={[
+                    settS.segBtn,
+                    { borderColor: C.border2 },
+                    config.countdown === mode && { backgroundColor: C.accent, borderColor: C.accent },
+                  ]}
+                  onPress={() => changeCountdown(mode)}
+                  disabled={isTimerActive}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[
+                    settS.segText,
+                    {
+                      color: config.countdown === mode ? '#fff' : C.text3,
+                      fontFamily: C.mono,
+                      opacity: isTimerActive ? 0.5 : 1,
+                    },
+                  ]}>
+                    {mode === '3-2-1' ? '3-2-1' : 'SINGLE'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </SettingsRow>
+
+          {/* SET REST (only when sets > 1) */}
+          {config.sets > 1 && (
+            <SettingsRow label="SET REST" desc="Rest duration between sets (seconds)" C={C}>
+              <View style={settS.numWrap}>
+                <TextInput
+                  style={[settS.numInput, {
+                    color: C.text,
+                    backgroundColor: C.surface2,
+                    borderColor: isTimerActive ? C.border : C.border2,
+                    fontFamily: C.mono,
+                    opacity: isTimerActive ? 0.5 : 1,
+                  }]}
+                  value={setRestDraft}
+                  onChangeText={setSetRestDraft}
+                  keyboardType="number-pad"
+                  editable={!isTimerActive}
+                  onBlur={applySetRest}
+                  onSubmitEditing={applySetRest}
+                />
+                <Text style={[settS.numUnit, { color: C.text4, fontFamily: C.mono }]}>s</Text>
+              </View>
+            </SettingsRow>
+          )}
+
+          {/* Sound */}
+          <SettingsRow label="SOUND" desc="Haptic cues for work, rest, and countdown" C={C}>
+            <TogglePill value={soundEnabled} onToggle={onSoundToggle} C={C} />
+          </SettingsRow>
+
+          {/* Keep screen on */}
+          <SettingsRow
+            label="KEEP SCREEN ON"
+            desc={keepScreenOn
+              ? 'Screen stays on during workout'
+              : 'Screen may sleep during workout'}
+            C={C}
+          >
+            <TogglePill value={keepScreenOn} onToggle={onKeepScreenToggle} C={C} />
+          </SettingsRow>
+
+          {/* Theme */}
+          <SettingsRow
+            label="THEME"
+            desc={theme === 'dark' ? 'Dark mode — tactical default' : 'Light mode — high visibility'}
+            C={C}
+          >
+            <TogglePill
+              value={theme === 'light'}
+              onToggle={onThemeToggle}
+              label={theme === 'dark' ? 'DARK' : 'LIGHT'}
+              C={C}
+            />
+          </SettingsRow>
+
+          {isTimerActive && (
+            <Text style={[settS.activeNote, { color: C.text4, fontFamily: C.mono }]}>
+              ↑ Some settings locked while timer is active
+            </Text>
+          )}
+
+          <View style={{ height: 36 }} />
+        </ScrollView>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+const settS = StyleSheet.create({
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)' },
+  sheet: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    borderTopWidth: 1,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 16,
+    maxHeight: '85%',
+    elevation: 24,
+  },
+  dragHandle: {
+    width: 36, height: 3,
+    alignSelf: 'center',
+    marginTop: 14, marginBottom: 6,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerAccent: { width: 3, height: 16 },
+  title:    { fontSize: 13, fontWeight: '700', letterSpacing: 5 },
+  closeBtn: { fontSize: 16 },
+  body:     { paddingHorizontal: 20 },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    gap: 16,
+  },
+  rowInfo:    { flex: 1, gap: 4 },
+  rowControl: { flexShrink: 0 },
+  rowLabel:   { fontSize: 12, fontWeight: '700', letterSpacing: 2.5 },
+  rowDesc:    { fontSize: 11, letterSpacing: 0.3, lineHeight: 16 },
+  segGroup:   { flexDirection: 'row', gap: 6 },
+  segBtn: {
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderWidth: 1,
+  },
+  segText:    { fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  numWrap:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  numInput: {
+    width: 64, height: 36,
+    borderWidth: 1.5,
+    paddingHorizontal: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  numUnit:    { fontSize: 13, letterSpacing: 0.5 },
+  activeNote: { fontSize: 11, letterSpacing: 0.5, marginTop: 12, textAlign: 'center', opacity: 0.7 },
+});
+
+// ─── PresetCard ───────────────────────────────────────────────────────────────
+
+function PresetCard({ preset, onLoad, onDelete, C }: {
+  preset: Preset;
+  onLoad: () => void;
+  onDelete: () => void;
+  C: Colors;
+}) {
+  const c = preset.config;
+  const detail = [
+    `${c.work}s work`,
+    `${c.rest}s rest`,
+    c.infinite ? '∞ loop' : `${c.rounds}R`,
+    c.sets > 1 ? `${c.sets} sets` : null,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <View style={[presetS.card, { borderColor: C.border, backgroundColor: C.surface2 }]}>
+      <View style={[presetS.leftAccent, { backgroundColor: C.border2 }]} />
+      <TouchableOpacity style={presetS.info} onPress={onLoad} activeOpacity={0.7}>
+        <Text style={[presetS.name, { color: C.text2, fontFamily: C.mono }]} numberOfLines={1}>
+          {preset.name}
+        </Text>
+        <Text style={[presetS.detail, { color: C.text4, fontFamily: C.mono }]} numberOfLines={1}>
+          {detail}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onDelete}
+        style={presetS.del}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.7}
+      >
+        <Text style={[presetS.delText, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const presetS = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    marginBottom: 7,
+    minHeight: 56,
+    overflow: 'hidden',
+  },
+  leftAccent: { width: 3, alignSelf: 'stretch' },
+  info:       { flex: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 3 },
+  name:       { fontSize: 14, fontWeight: '600', letterSpacing: 0.3 },
+  detail:     { fontSize: 12, letterSpacing: 0.8 },
+  del:        { padding: 16, alignItems: 'center', justifyContent: 'center' },
+  delText:    { fontSize: 14 },
+});
+
+// ─── SectionDivider ───────────────────────────────────────────────────────────
+
+function SectionDivider({ label, C }: { label: string; C: Colors }) {
+  return (
+    <View style={divS.row}>
+      <View style={[divS.line, { backgroundColor: C.border }]} />
+      <Text style={[divS.label, { color: C.text4, fontFamily: C.mono }]}>{label}</Text>
+      <View style={[divS.line, { backgroundColor: C.border }]} />
+    </View>
+  );
+}
+
+const divS = StyleSheet.create({
+  row:   { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
+  line:  { flex: 1, height: 1 },
+  label: { fontSize: 10, fontWeight: '700', letterSpacing: 4 },
+});
+
+// ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  // Theme
+  const [theme, setTheme] = useState<Theme>('dark');
+  const C = theme === 'dark' ? DARK : LIGHT;
+
+  // Config
   const [config, setConfig] = useState<TimerConfig>(DEFAULT_CONFIG);
+  const [lastDescription, setLastDescription] = useState('');
+
+  // NL Input
   const [inputText, setInputText] = useState('');
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [presets, setPresets] = useState<Preset[]>([]);
+  const [parsed, setParsed] = useState<ParsedResult | null>(null);
+  const [editingField, setEditingField] = useState<'work' | 'rest' | 'rounds' | null>(null);
 
+  // Settings
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [keepScreenOn, setKeepScreenOn] = useState(true);
+
+  // Presets
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [savingPreset, setSavingPreset] = useState(false);
+
+  // Timer
   const audio = useAudio();
   const { state, start, pause, resume, reset } = useTimer(config, audio);
-  const { phase, secondsLeft, currentRound, currentSet, paused } = state;
+  const { phase, secondsLeft, currentRound, currentSet, totalElapsed, paused } = state;
 
-  // Keep screen awake the whole time the app is open during a workout
-  useKeepAwake();
-
-  const phaseColor = PHASE_COLOR[phase];
-  const phaseLabel = PHASE_LABEL[phase];
-  const isRunning  = phase !== 'IDLE' && phase !== 'COMPLETE' && !paused;
-  const isPaused   = paused && phase !== 'IDLE' && phase !== 'COMPLETE';
-  const isComplete = phase === 'COMPLETE';
-  const isIdle     = phase === 'IDLE';
+  const phaseColor  = PHASE_COLOR[phase];
+  const isRunning   = phase !== 'IDLE' && phase !== 'COMPLETE' && !paused;
+  const isPaused    = paused && phase !== 'IDLE' && phase !== 'COMPLETE';
+  const isComplete  = phase === 'COMPLETE';
+  const isIdle      = phase === 'IDLE';
+  const isTimerActive = isRunning || isPaused;
+  const canParse    = !!CONVEX_URL && !isTimerActive;
 
   const phaseDuration =
-    phase === 'WORK'               ? config.work :
-    phase === 'REST'               ? config.rest :
-    phase === 'REST_BETWEEN_SETS'  ? config.restBetweenSets :
-    phase === 'COUNTDOWN'          ? 3 : 0;
+    phase === 'WORK'              ? config.work :
+    phase === 'REST'              ? config.rest :
+    phase === 'REST_BETWEEN_SETS' ? config.restBetweenSets :
+    phase === 'COUNTDOWN'         ? 3 : 0;
   const progress = phaseDuration > 0 ? secondsLeft / phaseDuration : 1;
 
-  function handleConfig(c: TimerConfig) {
+  // Sync mute
+  useEffect(() => { audio.setMuted(!soundEnabled); }, [soundEnabled]);
+
+  // Keep screen awake
+  useEffect(() => {
+    if (keepScreenOn && isRunning) {
+      activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+    } else {
+      deactivateKeepAwake(KEEP_AWAKE_TAG);
+    }
+    return () => { deactivateKeepAwake(KEEP_AWAKE_TAG); };
+  }, [keepScreenOn, isRunning]);
+
+  // Phase flash
+  const flashOpacity = useRef(new Animated.Value(0)).current;
+  const prevPhaseRef = useRef<TimerPhase>(phase);
+  useEffect(() => {
+    if (prevPhaseRef.current !== phase && phase !== 'IDLE') {
+      prevPhaseRef.current = phase;
+      flashOpacity.setValue(0.28);
+      Animated.timing(flashOpacity, {
+        toValue: 0,
+        duration: 480,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [phase]);
+
+  // Tick pulse on timer number
+  const tickScale = useRef(new Animated.Value(1)).current;
+  const prevSecondsRef = useRef(secondsLeft);
+  useEffect(() => {
+    if (prevSecondsRef.current !== secondsLeft && phase !== 'IDLE') {
+      prevSecondsRef.current = secondsLeft;
+      tickScale.setValue(1.06);
+      Animated.spring(tickScale, {
+        toValue: 1,
+        tension: 220,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [secondsLeft, phase]);
+
+  // Load presets
+  const loadPresets = useCallback(async () => {
+    if (!CONVEX_URL) return;
+    try {
+      const data = await convexQuery<Preset[]>('presets:list', {});
+      setPresets(data);
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadPresets(); }, []);
+
+  // Config handlers
+  function handleConfig(c: TimerConfig, name?: string) {
     setConfig(c);
     reset();
     setParseError(null);
+    if (name) setLastDescription(name);
   }
 
+  // NL Parse
   async function handleParse() {
     const trimmed = inputText.trim();
     if (!trimmed || parsing) return;
     setParsing(true);
     setParseError(null);
+    setParsed(null);
+    setEditingField(null);
     try {
-      const result = await convexParseWorkout(trimmed);
+      const result = await convexAction<TimerConfig & { name?: string; requestedTotalSeconds?: number }>(
+        'parseWorkout:parseWorkout', { description: trimmed }
+      );
       const cfg = makeTimerConfig(
         result.work, result.rest, result.rounds,
-        result.sets, result.restBetweenSets,
-        result.countdown, result.infinite,
+        result.sets, result.restBetweenSets, result.countdown, result.infinite,
       );
-      handleConfig(cfg);
+      handleConfig(cfg, result.name || trimmed);
+      setParsed({
+        config: cfg,
+        requestedTotalSeconds: result.requestedTotalSeconds,
+        work: cfg.work, rest: cfg.rest, rounds: cfg.rounds,
+        dismissedWarning: false,
+      });
     } catch (e) {
       setParseError(e instanceof Error ? e.message : 'Parse failed. Try again.');
     } finally {
@@ -137,189 +771,471 @@ export default function App() {
     }
   }
 
-  const canParse = !!CONVEX_URL && !isRunning && !isPaused;
+  // Editable chip updates
+  function updateParsedField(field: 'work' | 'rest' | 'rounds', value: number) {
+    if (!parsed) return;
+    const next = { ...parsed, [field]: value };
+    setParsed(next);
+    const cfg = makeTimerConfig(
+      next.work, next.rest, next.rounds,
+      next.config.sets, next.config.restBetweenSets, next.config.countdown, next.config.infinite,
+    );
+    setConfig(cfg);
+    reset();
+  }
+
+  function adjustRounds() {
+    if (!parsed?.requestedTotalSeconds) return;
+    const newRounds = Math.max(1, Math.min(100,
+      Math.round(parsed.requestedTotalSeconds / Math.max(1, parsed.work + parsed.rest))
+    ));
+    const next = { ...parsed, rounds: newRounds, dismissedWarning: true };
+    setParsed(next);
+    const cfg = makeTimerConfig(
+      next.work, next.rest, next.rounds,
+      next.config.sets, next.config.restBetweenSets, next.config.countdown, next.config.infinite,
+    );
+    setConfig(cfg);
+    reset();
+  }
+
+  const parsedTotal = parsed ? computeTotal(parsed.work, parsed.rest, parsed.rounds, parsed.config) : 0;
+  const showMismatch = parsed && !parsed.dismissedWarning
+    && parsed.requestedTotalSeconds != null
+    && Math.abs(parsedTotal - parsed.requestedTotalSeconds) >= 3;
+
+  // Presets
+  async function handleSavePreset() {
+    if (!CONVEX_URL || savingPreset || isTimerActive) return;
+    const name = lastDescription?.trim()
+      ? lastDescription.slice(0, 60)
+      : `${config.work}s · ${config.rest}s · ${config.infinite ? '∞' : config.rounds + 'R'}`;
+    setSavingPreset(true);
+    try {
+      await convexMutation('presets:create', {
+        name,
+        config,
+        description: lastDescription || '',
+      });
+      await loadPresets();
+    } catch { /* silent */ }
+    finally { setSavingPreset(false); }
+  }
+
+  async function handleDeletePreset(id: string) {
+    setPresets(prev => prev.filter(p => p._id !== id));
+    try { await convexMutation('presets:remove', { id }); }
+    catch { await loadPresets(); }
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#1a1a2e" />
+    <View style={[S.container, { backgroundColor: C.bg }]}>
+      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} backgroundColor={C.bg} />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* ── Header ─────────────────────────────────── */}
-        <View style={styles.header}>
-          <Text style={styles.brand}>timer.ai</Text>
-          <Text style={styles.tagline}>
-            {isIdle ? fmtTotal(config.totalSeconds) : ''}
-          </Text>
-        </View>
+      {/* Phase flash overlay */}
+      <Animated.View
+        pointerEvents="none"
+        style={[S.flashOverlay, { backgroundColor: phaseColor, opacity: flashOpacity }]}
+      />
 
-        {/* ── NL Input (requires Convex) ─────────────── */}
-        {canParse && (
-          <View style={styles.inputSection}>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.textInput}
-                value={inputText}
-                onChangeText={setInputText}
-                placeholder="Describe your workout…"
-                placeholderTextColor="#6060a0"
-                multiline
-                numberOfLines={2}
-                editable={!parsing}
-                returnKeyType="done"
-                onSubmitEditing={handleParse}
-              />
-              <TouchableOpacity
-                style={[styles.parseBtn, (!inputText.trim() || parsing) && styles.parseBtnDisabled]}
-                onPress={handleParse}
-                disabled={!inputText.trim() || parsing}
-                activeOpacity={0.75}
-              >
-                {parsing
-                  ? <ActivityIndicator size="small" color="#FF3300" />
-                  : <Text style={styles.parseBtnText}>PARSE</Text>
-                }
-              </TouchableOpacity>
+      {/* Corner bracket decorations */}
+      <View style={[S.cornerTL, { borderTopColor: C.border2, borderLeftColor: C.border2 }]} />
+      <View style={[S.cornerTR, { borderTopColor: C.border2, borderRightColor: C.border2 }]} />
+      <View style={[S.cornerBL, { borderBottomColor: C.border2, borderLeftColor: C.border2 }]} />
+      <View style={[S.cornerBR, { borderBottomColor: C.border2, borderRightColor: C.border2 }]} />
+
+      <KeyboardAvoidingView style={S.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView
+          style={S.scroll}
+          contentContainerStyle={[
+            S.scrollContent,
+            { paddingTop: Platform.OS === 'ios' ? 60 : 40 },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+
+          {/* ── Header ──────────────────────────────────────────── */}
+          <View style={S.header}>
+            <View style={S.brandWrap}>
+              <Text style={[S.brandBracket, { color: C.border2, fontFamily: C.mono }]}>[</Text>
+              <Text style={[S.brand, { color: C.text2, fontFamily: C.mono }]}>timer.ai</Text>
+              <Text style={[S.brandBracket, { color: C.border2, fontFamily: C.mono }]}>]</Text>
             </View>
-            {parseError != null && (
-              <Text style={styles.errorText}>⚠ {parseError}</Text>
-            )}
-          </View>
-        )}
-
-        {!CONVEX_URL && (
-          <View style={styles.noConvexHint}>
-            <Text style={styles.noConvexText}>
-              Set EXPO_PUBLIC_CONVEX_URL to enable AI workout parsing
+            <Text style={[S.tagline, { color: C.text4, fontFamily: C.mono }]}>
+              {isIdle
+                ? (config.infinite ? '∞' : fmtTotal(config.totalSeconds))
+                : fmtElapsed(totalElapsed)}
             </Text>
+            <TouchableOpacity
+              onPress={() => setSettingsOpen(true)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={[S.gearIcon, { color: C.text4 }]}>⚙</Text>
+            </TouchableOpacity>
           </View>
-        )}
 
-        {/* ── Timer ──────────────────────────────────── */}
-        <View style={styles.timerSection}>
+          {/* Header underline */}
+          <View style={[S.headerLine, { backgroundColor: C.border }]} />
 
-          {/* Phase label */}
-          <Text style={[styles.phaseLabel, { color: phaseColor }]}>
-            {phaseLabel}
-          </Text>
+          {/* ── NL Input ──────────────────────────────────────── */}
+          {canParse && (
+            <View style={S.inputSection}>
+              <View style={S.inputRow}>
+                <View style={[S.inputWrap, { borderColor: C.border, backgroundColor: C.surface2 }]}>
+                  <View style={[S.inputAccent, { backgroundColor: C.border2 }]} />
+                  <TextInput
+                    style={[S.textInput, { color: C.text, fontFamily: C.mono }]}
+                    value={inputText}
+                    onChangeText={setInputText}
+                    placeholder="Describe your workout…"
+                    placeholderTextColor={C.text4}
+                    multiline
+                    numberOfLines={2}
+                    editable={!parsing}
+                    returnKeyType="done"
+                    onSubmitEditing={handleParse}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[S.parseBtn, {
+                    borderColor: !inputText.trim() || parsing ? C.border : C.accent,
+                    opacity: !inputText.trim() && !parsing ? 0.5 : 1,
+                  }]}
+                  onPress={handleParse}
+                  disabled={!inputText.trim() || parsing}
+                  activeOpacity={0.7}
+                >
+                  {parsing
+                    ? <ActivityIndicator size="small" color={C.accent} />
+                    : <Text style={[S.parseBtnText, {
+                        color: !inputText.trim() ? C.text4 : C.accent,
+                        fontFamily: C.mono,
+                      }]}>PARSE</Text>
+                  }
+                </TouchableOpacity>
+              </View>
 
-          {/* Ring + center */}
-          <View style={[styles.ringWrapper, { width: RING_SIZE, height: RING_SIZE }]}>
-            <TimerRing progress={progress} color={phaseColor} size={RING_SIZE} />
-            <View style={[styles.ringCenter, { width: RING_SIZE, height: RING_SIZE }]}>
-              <Text style={[styles.timerNumber, isComplete && { color: phaseColor }]}>
-                {isIdle ? '--' : isComplete ? '✓' : String(secondsLeft)}
+              {parseError != null && (
+                <View style={[S.errorWrap, { borderLeftColor: '#FF6644', backgroundColor: 'rgba(255,100,68,0.08)' }]}>
+                  <Text style={[S.errorText, { color: '#FF6644', fontFamily: C.mono }]}>
+                    ⚠ {parseError}
+                  </Text>
+                </View>
+              )}
+
+              {/* Parsed chips row */}
+              {parsed && !parseError && (
+                <View style={S.parsedSection}>
+                  <View style={S.chipsRow}>
+                    <EditableChip
+                      value={parsed.work} unit="s" label="WORK"
+                      editing={editingField === 'work'}
+                      onTap={() => setEditingField('work')}
+                      onChange={v => updateParsedField('work', v)}
+                      onBlur={() => setEditingField(null)}
+                      min={5} max={3600} C={C}
+                    />
+                    <Text style={[S.dot, { color: C.text4, fontFamily: C.mono }]}>·</Text>
+                    <EditableChip
+                      value={parsed.rest} unit="s" label="REST"
+                      editing={editingField === 'rest'}
+                      onTap={() => setEditingField('rest')}
+                      onChange={v => updateParsedField('rest', v)}
+                      onBlur={() => setEditingField(null)}
+                      min={0} max={3600} C={C}
+                    />
+                    <Text style={[S.dot, { color: C.text4, fontFamily: C.mono }]}>·</Text>
+                    {parsed.config.infinite
+                      ? <Text style={[S.chipStatic, { color: C.text2, fontFamily: C.mono }]}>∞ LOOP</Text>
+                      : (
+                        <EditableChip
+                          value={parsed.rounds} label="RDS"
+                          editing={editingField === 'rounds'}
+                          onTap={() => setEditingField('rounds')}
+                          onChange={v => updateParsedField('rounds', v)}
+                          onBlur={() => setEditingField(null)}
+                          min={1} max={100} C={C}
+                        />
+                      )
+                    }
+                    {parsed.config.sets > 1 && (
+                      <>
+                        <Text style={[S.dot, { color: C.text4, fontFamily: C.mono }]}>·</Text>
+                        <Text style={[S.chipStatic, { color: C.text2, fontFamily: C.mono }]}>
+                          {parsed.config.sets}S
+                        </Text>
+                      </>
+                    )}
+                  </View>
+
+                  {/* Total time */}
+                  <View style={S.totalRow}>
+                    <Text style={[S.totalLabel, { color: C.text4, fontFamily: C.mono }]}>TOTAL</Text>
+                    <Text style={[S.totalSep,   { color: C.border2, fontFamily: C.mono }]}>·</Text>
+                    <Text style={[S.totalValue,  { color: C.text3, fontFamily: C.mono }]}>
+                      {parsed.config.infinite ? '∞ until stopped' : fmtTotal(parsedTotal)}
+                    </Text>
+                  </View>
+
+                  {/* Mismatch warning */}
+                  {showMismatch && (
+                    <View style={[S.mismatch, {
+                      borderColor: '#FFD600',
+                      backgroundColor: 'rgba(255,214,0,0.07)',
+                    }]}>
+                      <Text style={[S.mismatchText, { color: '#FFD600', fontFamily: C.mono }]}>
+                        ⚠ Parsed as {fmtTotal(parsedTotal)} · asked for {fmtTotal(parsed.requestedTotalSeconds!)}
+                      </Text>
+                      <View style={S.mismatchActions}>
+                        <TouchableOpacity
+                          style={[S.mismatchBtn, { borderColor: '#FFD600' }]}
+                          onPress={adjustRounds}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[S.mismatchBtnText, { color: '#FFD600', fontFamily: C.mono }]}>
+                            Adjust rounds to fit {fmtTotal(parsed.requestedTotalSeconds!)}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setParsed(prev => prev ? { ...prev, dismissedWarning: true } : null)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={[S.mismatchDismiss, { color: C.text4, fontFamily: C.mono }]}>
+                            Keep as parsed
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* No Convex hint */}
+          {!CONVEX_URL && (
+            <View style={[S.noConvexHint, { borderColor: C.border, backgroundColor: C.surface2 }]}>
+              <View style={[S.noConvexAccent, { backgroundColor: C.border2 }]} />
+              <Text style={[S.noConvexText, { color: C.text4, fontFamily: C.mono }]}>
+                Set EXPO_PUBLIC_CONVEX_URL to enable AI workout parsing
               </Text>
-              {!isIdle && !isComplete && (
-                <Text style={styles.roundLabel}>
-                  {config.infinite
-                    ? `R${currentRound}`
-                    : `R${currentRound}/${config.rounds}${config.sets > 1 ? ` · S${currentSet}/${config.sets}` : ''}`}
-                </Text>
+            </View>
+          )}
+
+          {/* ── Timer ────────────────────────────────────────────── */}
+          <View style={S.timerSection}>
+
+            {/* Phase label with flanking rules */}
+            <View style={S.phaseLabelRow}>
+              <View style={[S.phaseRule, { backgroundColor: phaseColor }]} />
+              <Text style={[S.phaseLabel, { color: phaseColor, fontFamily: C.mono }]}>
+                {PHASE_LABEL[phase]}
+              </Text>
+              <View style={[S.phaseRule, { backgroundColor: phaseColor }]} />
+            </View>
+
+            {/* Ring + center content */}
+            <View style={[S.ringWrapper, { width: RING_SIZE, height: RING_SIZE }]}>
+              <TimerRing progress={progress} color={phaseColor} size={RING_SIZE} strokeWidth={7} />
+              <View style={[S.ringCenter, { width: RING_SIZE, height: RING_SIZE }]}>
+                <Animated.Text
+                  style={[
+                    S.timerNumber,
+                    {
+                      color: (isComplete || (isRunning && phase !== 'IDLE')) ? phaseColor : C.text,
+                      fontFamily: C.mono,
+                      transform: [{ scale: tickScale }],
+                    },
+                  ] as any}
+                >
+                  {isIdle ? '--' : isComplete ? '✓' : String(secondsLeft)}
+                </Animated.Text>
+
+                {!isIdle && !isComplete && (
+                  <Text style={[S.roundLabel, { color: C.text3, fontFamily: C.mono }]}>
+                    {config.infinite
+                      ? `R${currentRound}`
+                      : `R${currentRound}/${config.rounds}${config.sets > 1 ? ` · S${currentSet}/${config.sets}` : ''}`}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            {/* Config summary (idle) */}
+            {isIdle && (
+              <Text style={[S.configSummary, { color: C.text4, fontFamily: C.mono }]}>
+                {config.work}s · {config.rest}s · {config.infinite ? '∞' : config.rounds + 'R'}
+                {config.sets > 1 ? ` · ${config.sets} SETS` : ''}
+              </Text>
+            )}
+
+            {/* Workout complete */}
+            {isComplete && (
+              <Text style={[S.completeMsg, { color: phaseColor, fontFamily: C.mono }]}>
+                WORKOUT COMPLETE
+              </Text>
+            )}
+
+            {/* Controls */}
+            <View style={S.controls}>
+              {isIdle && (
+                <TouchableOpacity
+                  style={[S.btnPrimary, { borderColor: phaseColor }]}
+                  onPress={start}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[S.btnPrimaryText, { color: phaseColor, fontFamily: C.mono }]}>
+                    START
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {isRunning && (
+                <TouchableOpacity
+                  style={[S.btnSecondary, { borderColor: C.border2 }]}
+                  onPress={pause}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[S.btnSecondaryText, { color: C.text3, fontFamily: C.mono }]}>
+                    PAUSE
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {isPaused && (
+                <TouchableOpacity
+                  style={[S.btnPrimary, { borderColor: phaseColor }]}
+                  onPress={resume}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[S.btnPrimaryText, { color: phaseColor, fontFamily: C.mono }]}>
+                    RESUME
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {(isPaused || isComplete || isRunning) && (
+                <TouchableOpacity
+                  style={[S.btnGhost, { borderColor: C.border }]}
+                  onPress={reset}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[S.btnGhostText, { color: C.text4, fontFamily: C.mono }]}>
+                    RESET
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
           </View>
 
-          {/* Config summary (idle) */}
-          {isIdle && (
-            <Text style={styles.configSummary}>
-              {config.work}s · {config.rest}s · {config.infinite ? '∞' : config.rounds + 'R'}
-              {config.sets > 1 ? ` · ${config.sets}S` : ''}
-            </Text>
+          {/* ── Presets ────────────────────────────────────────── */}
+          {!!CONVEX_URL && (
+            <View style={S.presetsSection}>
+              <SectionDivider label="PRESETS" C={C} />
+
+              <View style={S.presetsTitleRow}>
+                <TouchableOpacity
+                  style={[S.saveBtn, {
+                    borderColor: isTimerActive ? C.border : C.accent,
+                    opacity: isTimerActive ? 0.4 : 1,
+                  }]}
+                  onPress={handleSavePreset}
+                  disabled={isTimerActive || savingPreset}
+                  activeOpacity={0.7}
+                >
+                  {savingPreset
+                    ? <ActivityIndicator size="small" color={C.accent} />
+                    : <Text style={[S.saveBtnText, { color: C.accent, fontFamily: C.mono }]}>
+                        + SAVE CURRENT
+                      </Text>
+                  }
+                </TouchableOpacity>
+              </View>
+
+              {presets.length === 0 ? (
+                <Text style={[S.presetsEmpty, { color: C.text4, fontFamily: C.mono }]}>
+                  No presets yet — parse a workout and save it
+                </Text>
+              ) : (
+                presets.map(p => (
+                  <PresetCard
+                    key={p._id}
+                    preset={p}
+                    onLoad={() => handleConfig(p.config, p.name)}
+                    onDelete={() => handleDeletePreset(p._id)}
+                    C={C}
+                  />
+                ))
+              )}
+            </View>
           )}
 
-          {isComplete && (
-            <Text style={[styles.completeMsg, { color: phaseColor }]}>
-              WORKOUT COMPLETE
-            </Text>
-          )}
+          <View style={{ height: 60 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
-          {/* Controls */}
-          <View style={styles.controls}>
-            {isIdle && (
-              <TouchableOpacity
-                style={[styles.btnPrimary, { borderColor: phaseColor }]}
-                onPress={start}
-                activeOpacity={0.75}
-              >
-                <Text style={[styles.btnPrimaryText, { color: phaseColor }]}>START</Text>
-              </TouchableOpacity>
-            )}
-            {isRunning && (
-              <TouchableOpacity style={styles.btnSecondary} onPress={pause} activeOpacity={0.75}>
-                <Text style={styles.btnSecondaryText}>PAUSE</Text>
-              </TouchableOpacity>
-            )}
-            {isPaused && (
-              <TouchableOpacity
-                style={[styles.btnPrimary, { borderColor: phaseColor }]}
-                onPress={resume}
-                activeOpacity={0.75}
-              >
-                <Text style={[styles.btnPrimaryText, { color: phaseColor }]}>RESUME</Text>
-              </TouchableOpacity>
-            )}
-            {(isPaused || isComplete || isRunning) && (
-              <TouchableOpacity style={styles.btnGhost} onPress={reset} activeOpacity={0.75}>
-                <Text style={styles.btnGhostText}>RESET</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* ── Presets ────────────────────────────────── */}
-        {presets.length > 0 && (
-          <View style={styles.presetsSection}>
-            <Text style={styles.presetsTitle}>PRESETS</Text>
-            {presets.map(p => (
-              <PresetCard
-                key={p._id}
-                preset={p}
-                onLoad={() => handleConfig(p.config)}
-              />
-            ))}
-          </View>
-        )}
-
-        <View style={{ height: 48 }} />
-      </ScrollView>
+      {/* Settings Sheet */}
+      <SettingsSheet
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        config={config}
+        onConfigChange={c => handleConfig(c)}
+        soundEnabled={soundEnabled}
+        onSoundToggle={() => setSoundEnabled(v => !v)}
+        keepScreenOn={keepScreenOn}
+        onKeepScreenToggle={() => setKeepScreenOn(v => !v)}
+        theme={theme}
+        onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+        isTimerActive={isTimerActive}
+        C={C}
+      />
     </View>
   );
 }
 
-// ─── Styles ─────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-const C = {
-  bg:       '#1a1a2e',
-  surface:  '#181830',
-  surface2: '#161628',
-  border:   '#2e2e4e',
-  border2:  '#3a3a58',
-  text:     '#f0f0f0',
-  text2:    '#b0b0cc',
-  text3:    '#a0a0c0',
-  text4:    '#6060a0',
-  accent:   '#FF3300',
-  mono:     Platform.select({ ios: 'Courier New', android: 'monospace', default: 'monospace' }),
-};
+const CORNER_SIZE = 22;
+const CORNER_PAD  = 12;
+const CORNER_W    = 1.5;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: C.bg,
+const S = StyleSheet.create({
+  flex:         { flex: 1 },
+  container:    { flex: 1 },
+  flashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    elevation: 10,
   },
-  scroll: {
-    flex: 1,
+
+  // Corner brackets
+  cornerTL: {
+    position: 'absolute', top: CORNER_PAD, left: CORNER_PAD,
+    width: CORNER_SIZE, height: CORNER_SIZE,
+    borderTopWidth: CORNER_W, borderLeftWidth: CORNER_W,
+    zIndex: 5,
   },
-  scrollContent: {
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 56 : 32,
+  cornerTR: {
+    position: 'absolute', top: CORNER_PAD, right: CORNER_PAD,
+    width: CORNER_SIZE, height: CORNER_SIZE,
+    borderTopWidth: CORNER_W, borderRightWidth: CORNER_W,
+    zIndex: 5,
   },
+  cornerBL: {
+    position: 'absolute', bottom: CORNER_PAD, left: CORNER_PAD,
+    width: CORNER_SIZE, height: CORNER_SIZE,
+    borderBottomWidth: CORNER_W, borderLeftWidth: CORNER_W,
+    zIndex: 5,
+  },
+  cornerBR: {
+    position: 'absolute', bottom: CORNER_PAD, right: CORNER_PAD,
+    width: CORNER_SIZE, height: CORNER_SIZE,
+    borderBottomWidth: CORNER_W, borderRightWidth: CORNER_W,
+    zIndex: 5,
+  },
+
+  scroll:        { flex: 1 },
+  scrollContent: { alignItems: 'center', paddingHorizontal: 20 },
 
   // Header
   header: {
@@ -327,106 +1243,98 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 14,
   },
-  brand: {
-    fontFamily: C.mono,
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 6,
-    color: C.text2,
-    textTransform: 'uppercase',
-  },
-  tagline: {
-    fontFamily: C.mono,
-    fontSize: 16,
-    color: C.text2,
-    letterSpacing: 1,
-  },
+  brandWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  brandBracket: { fontSize: 18, fontWeight: '300', opacity: 0.6 },
+  brand:    { fontSize: 17, fontWeight: '700', letterSpacing: 5 },
+  tagline:  { fontSize: 15, letterSpacing: 1 },
+  gearIcon: { fontSize: 22 },
+  headerLine: { width: '100%', height: 1, marginBottom: 20 },
 
   // NL Input
-  inputSection: {
-    width: '100%',
-    marginBottom: 20,
-    gap: 8,
-  },
-  inputRow: {
+  inputSection: { width: '100%', gap: 10, marginBottom: 4 },
+  inputRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  inputWrap: {
+    flex: 1,
     flexDirection: 'row',
-    gap: 8,
-    alignItems: 'flex-start',
+    borderWidth: 1,
+    overflow: 'hidden',
+    minHeight: 56,
   },
+  inputAccent: { width: 3, alignSelf: 'stretch' },
   textInput: {
     flex: 1,
-    fontFamily: C.mono,
-    fontSize: 16,
-    color: C.text,
-    backgroundColor: C.surface2,
-    borderWidth: 1,
-    borderColor: C.border,
+    fontSize: 15,
     padding: 12,
-    minHeight: 52,
     textAlignVertical: 'top',
+    minHeight: 56,
   },
   parseBtn: {
-    width: 72,
-    height: 52,
-    backgroundColor: 'transparent',
+    width: 68,
+    height: 56,
     borderWidth: 1.5,
-    borderColor: C.accent,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  parseBtnDisabled: {
-    borderColor: C.text4,
-    opacity: 0.5,
+  parseBtnText: { fontSize: 11, fontWeight: '700', letterSpacing: 2 },
+  errorWrap: {
+    borderLeftWidth: 3,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
-  parseBtnText: {
-    fontFamily: C.mono,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 2,
-    color: C.accent,
-  },
-  errorText: {
-    fontFamily: C.mono,
-    fontSize: 14,
-    color: '#FF6644',
-    paddingLeft: 8,
-    borderLeftWidth: 2,
-    borderLeftColor: C.accent,
-  },
+  errorText: { fontSize: 13, letterSpacing: 0.3 },
 
-  // No convex hint
+  // Parsed section
+  parsedSection: { gap: 10, paddingTop: 2 },
+  chipsRow:  { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  dot:       { fontSize: 16, fontWeight: '700' },
+  chipStatic:{ fontSize: 14, fontWeight: '700', letterSpacing: 1 },
+  totalRow:  { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  totalLabel:{ fontSize: 11, fontWeight: '700', letterSpacing: 3 },
+  totalSep:  { fontSize: 14 },
+  totalValue:{ fontSize: 14, letterSpacing: 0.5 },
+  mismatch:  { borderWidth: 1, padding: 12, gap: 10 },
+  mismatchText: { fontSize: 13, letterSpacing: 0.3 },
+  mismatchActions: { gap: 10 },
+  mismatchBtn: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+  },
+  mismatchBtnText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  mismatchDismiss: { fontSize: 13, paddingVertical: 2 },
+
+  // No Convex hint
   noConvexHint: {
     width: '100%',
+    flexDirection: 'row',
     borderWidth: 1,
-    borderColor: C.border,
-    padding: 12,
-    marginBottom: 16,
-    backgroundColor: C.surface2,
+    marginBottom: 20,
+    overflow: 'hidden',
   },
-  noConvexText: {
-    fontFamily: C.mono,
-    fontSize: 13,
-    color: C.text4,
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
+  noConvexAccent: { width: 3, alignSelf: 'stretch' },
+  noConvexText: { flex: 1, fontSize: 12, letterSpacing: 0.5, padding: 12, lineHeight: 18 },
 
   // Timer
-  timerSection: {
-    width: '100%',
+  timerSection: { width: '100%', alignItems: 'center', paddingVertical: 4 },
+  phaseLabelRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    gap: 14,
+    width: '100%',
+    marginBottom: 22,
+    paddingHorizontal: 8,
   },
+  phaseRule:  { flex: 1, height: 1, opacity: 0.35 },
   phaseLabel: {
-    fontFamily: C.mono,
-    fontSize: 22,
+    fontSize: 17,
     fontWeight: '700',
-    letterSpacing: 8,
+    letterSpacing: 9,
     textTransform: 'uppercase',
-    marginBottom: 16,
-    minHeight: 28,
+    textAlign: 'center',
   },
   ringWrapper: {
     position: 'relative',
@@ -439,34 +1347,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   timerNumber: {
-    fontFamily: C.mono,
-    fontSize: 88,
+    fontSize: 96,
     fontWeight: '900',
-    lineHeight: 100,
-    color: '#ffffff',
-    userSelect: 'none',
-  } as any,
+    lineHeight: 110,
+    letterSpacing: -2,
+  },
   roundLabel: {
-    fontFamily: C.mono,
-    fontSize: 16,
-    color: C.text2,
-    letterSpacing: 1,
-    marginTop: 4,
+    fontSize: 15,
+    letterSpacing: 1.5,
+    marginTop: 2,
   },
   configSummary: {
-    fontFamily: C.mono,
-    fontSize: 16,
-    color: C.text3,
+    fontSize: 14,
     letterSpacing: 3,
-    marginTop: 12,
+    marginTop: 14,
     textTransform: 'uppercase',
   },
   completeMsg: {
-    fontFamily: C.mono,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 4,
-    marginTop: 12,
+    letterSpacing: 5,
+    marginTop: 14,
     textTransform: 'uppercase',
   },
 
@@ -474,99 +1375,56 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 28,
+    marginTop: 30,
     flexWrap: 'wrap',
     justifyContent: 'center',
   },
   btnPrimary: {
-    minWidth: 96,
-    height: 52,
-    borderWidth: 1.5,
+    minWidth: 110,
+    height: 54,
+    borderWidth: 2,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
-  btnPrimaryText: {
-    fontFamily: C.mono,
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 4,
-  },
+  btnPrimaryText: { fontSize: 16, fontWeight: '700', letterSpacing: 5 },
   btnSecondary: {
-    minWidth: 96,
-    height: 52,
+    minWidth: 110,
+    height: 54,
     borderWidth: 1.5,
-    borderColor: C.border2,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  btnSecondaryText: { fontSize: 16, fontWeight: '700', letterSpacing: 5 },
+  btnGhost: {
+    minWidth: 90,
+    height: 54,
+    borderWidth: 1,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
-  btnSecondaryText: {
-    fontFamily: C.mono,
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: 4,
-    color: C.text2,
-  },
-  btnGhost: {
-    minWidth: 80,
-    height: 52,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-  },
-  btnGhostText: {
-    fontFamily: C.mono,
-    fontSize: 14,
-    letterSpacing: 4,
-    color: C.text4,
-  },
+  btnGhostText: { fontSize: 14, letterSpacing: 4 },
 
   // Presets
-  presetsSection: {
-    width: '100%',
-    marginTop: 32,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    paddingTop: 20,
-    gap: 6,
+  presetsSection: { width: '100%' },
+  presetsTitleRow: { marginBottom: 12 },
+  saveBtn: {
+    borderWidth: 1.5,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    alignSelf: 'flex-start',
   },
-  presetsTitle: {
-    fontFamily: C.mono,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 6,
-    color: C.text3,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  presetCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: C.border,
-    padding: 12,
-    backgroundColor: 'rgba(20,20,40,0.3)',
-    minHeight: 56,
-  },
-  presetInner: {
-    flex: 1,
-    gap: 2,
-  },
-  presetName: {
-    fontFamily: C.mono,
-    fontSize: 15,
-    color: C.text2,
-  },
-  presetDetail: {
-    fontFamily: C.mono,
+  saveBtnText: { fontSize: 12, fontWeight: '700', letterSpacing: 2 },
+  presetsEmpty: {
     fontSize: 13,
-    color: C.text3,
-    letterSpacing: 1,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    paddingVertical: 20,
+    opacity: 0.7,
   },
 });
