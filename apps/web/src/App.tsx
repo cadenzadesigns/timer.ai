@@ -20,13 +20,13 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const VIEWBOX = RADIUS * 2 + STROKE * 2;
 const CENTER = RADIUS + STROKE;
 
-const PHASE_META: Record<TimerPhase, { label: string; color: string; bg: string; glow: string }> = {
-  IDLE:             { label: 'READY',    color: '#4a4a5a', bg: '#08080e', glow: 'rgba(74,74,90,0)' },
-  COUNTDOWN:        { label: 'GET SET',  color: '#FFD600', bg: '#0c0b05', glow: 'rgba(255,214,0,0.15)' },
-  WORK:             { label: 'WORK',     color: '#FF3300', bg: '#0f0707', glow: 'rgba(255,51,0,0.2)' },
-  REST:             { label: 'REST',     color: '#00CCFF', bg: '#07100e', glow: 'rgba(0,204,255,0.15)' },
-  REST_BETWEEN_SETS:{ label: 'SET REST', color: '#00CCFF', bg: '#07100e', glow: 'rgba(0,204,255,0.12)' },
-  COMPLETE:         { label: 'DONE',     color: '#00FF88', bg: '#07100a', glow: 'rgba(0,255,136,0.2)' },
+const PHASE_META: Record<TimerPhase, { label: string; color: string; glow: string }> = {
+  IDLE:             { label: 'READY',    color: '#4a4a5a', glow: 'rgba(74,74,90,0)' },
+  COUNTDOWN:        { label: 'GET SET',  color: '#FFD600', glow: 'rgba(255,214,0,0.15)' },
+  WORK:             { label: 'WORK',     color: '#FF3300', glow: 'rgba(255,51,0,0.2)' },
+  REST:             { label: 'REST',     color: '#00CCFF', glow: 'rgba(0,204,255,0.15)' },
+  REST_BETWEEN_SETS:{ label: 'SET REST', color: '#00CCFF', glow: 'rgba(0,204,255,0.12)' },
+  COMPLETE:         { label: 'DONE',     color: '#00FF88', glow: 'rgba(0,255,136,0.2)' },
 };
 
 function formatElapsed(seconds: number): string {
@@ -395,7 +395,7 @@ export default function App({ convexEnabled = false }: AppProps) {
   return (
     <div
       className="app-shell"
-      style={{ background: meta.bg, transition: 'background 0.6s ease' }}
+      style={{ transition: 'background 0.6s ease' }}
     >
       {/* Scanlines overlay */}
       <div className="scanlines" />
@@ -494,7 +494,7 @@ export default function App({ convexEnabled = false }: AppProps) {
                   transform: tickPulse ? 'scale(1.03)' : 'scale(1)',
                   transition: 'transform 0.1s ease-out',
                   textShadow: phase !== 'IDLE' ? `0 0 40px ${meta.color}44` : 'none',
-                  color: isComplete ? meta.color : '#ffffff',
+                  color: isComplete ? meta.color : undefined,
                 }}
               >
                 {isIdle ? '--' : isComplete ? '✓' : secondsLeft}
