@@ -13,6 +13,7 @@ export default defineSchema({
       sets: v.number(),
       restBetweenSets: v.number(),
       countdown: v.union(v.literal("3-2-1"), v.literal("single")),
+      infinite: v.boolean(),
       totalSeconds: v.number(),
     }),
     createdAt: v.number(),
