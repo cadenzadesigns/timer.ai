@@ -4,7 +4,14 @@ import { v } from "convex/values";
 const SYSTEM_PROMPT = `You are a fitness timer configuration parser. Parse natural language workout descriptions into a JSON timer config.
 
 Output ONLY valid JSON — no markdown, no explanation, no code blocks:
-{"work":<seconds>,"rest":<seconds>,"rounds":<number>,"sets":<number>,"restBetweenSets":<seconds>,"countdown":"3-2-1"|"single","infinite":<boolean>}
+{"name":<string>,"work":<seconds>,"rest":<seconds>,"rounds":<number>,"sets":<number>,"restBetweenSets":<seconds>,"countdown":"3-2-1"|"single","infinite":<boolean>}
+
+The "name" field is a short, human-readable label for this workout (max 40 chars). Examples:
+- "Tabata Classic" for standard Tabata
+- "30s on / 10s off × 8" for interval work
+- "Every 10s, no rest" for infinite loops
+- "2min work / 1min rest × 5, 3 sets" for multi-set
+Make it concise but descriptive — like a label you'd see on a preset button.
 
 Rules:
 - Parse EXACTLY what the user says. Do NOT add defaults the user didn't ask for.
@@ -75,11 +82,13 @@ export const parseWorkout = action({
     const restBetweenSets = Math.max(0, Math.min(3600, Number(parsed.restBetweenSets ?? 0)));
     const countdown = parsed.countdown === "single" ? "single" : "3-2-1";
     const infinite = parsed.infinite === true;
+    const name = typeof parsed.name === "string" ? parsed.name.slice(0, 60) : "";
     const requestedTotalSeconds = parsed.requestedTotalSeconds != null
       ? Math.max(1, Math.min(7200, Number(parsed.requestedTotalSeconds)))
       : undefined;
 
     return {
+      name,
       work,
       rest,
       rounds,

@@ -354,9 +354,9 @@ export default function App({ convexEnabled = false }: AppProps) {
     reset();
   }, [reset]);
 
-  const handleNLConfig = useCallback((c: TimerConfig, description?: string) => {
+  const handleNLConfig = useCallback((c: TimerConfig, name?: string) => {
     setConfig(c);
-    if (description) setLastDescription(description);
+    if (name) setLastDescription(name);
     reset();
   }, [reset]);
 
@@ -412,7 +412,7 @@ export default function App({ convexEnabled = false }: AppProps) {
         <section className="input-section">
           {convexEnabled ? (
             <NLInput
-              onConfig={(c) => handleNLConfig(c)}
+              onConfig={(c, name) => handleNLConfig(c, name)}
               disabled={isRunning || isPaused}
             />
           ) : (

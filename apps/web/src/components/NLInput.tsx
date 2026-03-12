@@ -5,7 +5,7 @@ import type { TimerConfig } from '@timer-ai/core';
 import { makeTimerConfig } from '@timer-ai/core';
 
 interface Props {
-  onConfig: (config: TimerConfig) => void;
+  onConfig: (config: TimerConfig, name?: string) => void;
   disabled?: boolean;
 }
 
@@ -100,7 +100,7 @@ export function NLInput({ onConfig, disabled }: Props) {
     setError(null);
     setEditingField(null);
     try {
-      const result = await parseWorkout({ description: trimmed }) as TimerConfig & { requestedTotalSeconds?: number };
+      const result = await parseWorkout({ description: trimmed }) as TimerConfig & { requestedTotalSeconds?: number; name?: string };
       const newParsed: ParsedResult = {
         config: result,
         requestedTotalSeconds: result.requestedTotalSeconds,
@@ -110,7 +110,7 @@ export function NLInput({ onConfig, disabled }: Props) {
         dismissedWarning: false,
       };
       setParsed(newParsed);
-      onConfig(result);
+      onConfig(result, result.name || trimmed);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Parse failed. Try again.');
     } finally {
