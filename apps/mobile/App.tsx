@@ -2,21 +2,18 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Dimensions, Platform, ActivityIndicator,
-  Modal, Animated, KeyboardAvoidingView,
+  Modal, Animated, KeyboardAvoidingView, Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as SecureStore from 'expo-secure-store';
-import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
+import { ClerkProvider, useAuth, useUser, useSignIn } from '@clerk/expo';
+import { tokenCache } from '@clerk/expo/token-cache';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { TimerRing } from './src/components/TimerRing';
 import { useTimer } from './src/hooks/useTimer';
 import { useAudio } from './src/hooks/useAudio';
-
-// Required for OAuth flows
-WebBrowser.maybeCompleteAuthSession();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -143,163 +140,37 @@ async function convexCall(
   return json.value ?? json;
 }
 
-// ─── Clerk Browser-Based Auth ─────────────────────────────────────────────────
-
-const CLERK_DOMAIN = 'https://certain-halibut-13.clerk.accounts.dev';
-const CLERK_SESSION_ID_KEY  = 'clerk_session_id';
-const CLERK_SESSION_TOK_KEY = 'clerk_session_token';
+// ─── Clerk Auth Hook (uses @clerk/expo SDK) ──────────────────────────────────
 
 interface ClerkUserInfo { email: string; name: string | null }
 
-async function clerkFapi(path: string, init: RequestInit = {}): Promise<any> {
-  const res = await fetch(`${CLERK_DOMAIN}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Clerk ${path} → ${res.status}: ${text.slice(0, 120)}`);
-  }
-  return res.json();
-}
-
-async function clerkExchangeTicket(ticket: string): Promise<{ sessionId: string; sessionToken: string }> {
-  const data = await clerkFapi(`/v1/client?__clerk_ticket=${encodeURIComponent(ticket)}`);
-  // Clerk FAPI wraps response under `response` or directly under `client`
-  const sessions: any[] = data?.response?.sessions ?? data?.client?.sessions ?? [];
-  const session = sessions[0];
-  if (!session) throw new Error('No session returned from Clerk ticket exchange');
-  const sessionToken = session.last_active_token?.jwt ?? '';
-  if (!sessionToken) throw new Error('Clerk returned no session token');
-  return { sessionId: session.id as string, sessionToken };
-}
-
-async function clerkGetConvexJwt(sessionId: string, sessionToken: string): Promise<{ jwt: string; expiry: number }> {
-  const data = await clerkFapi(`/v1/client/sessions/${sessionId}/tokens/convex`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${sessionToken}` },
-  });
-  const jwt: string = data.jwt;
-  if (!jwt) throw new Error('Clerk returned no Convex JWT');
-  return { jwt, expiry: Date.now() + 50_000 }; // refresh 10s before 60s expiry
-}
-
-async function clerkGetUserInfo(sessionId: string, sessionToken: string): Promise<ClerkUserInfo> {
-  try {
-    const data = await clerkFapi('/v1/client', {
-      headers: { Authorization: `Bearer ${sessionToken}` },
-    });
-    const sessions: any[] = data?.response?.sessions ?? data?.client?.sessions ?? [];
-    const session = sessions.find((s: any) => s.id === sessionId) ?? sessions[0];
-    const user = session?.user;
-    if (!user) return { email: '', name: null };
-    const email: string = user.email_addresses?.[0]?.email_address ?? '';
-    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || null;
-    return { email, name };
-  } catch { return { email: '', name: null }; }
-}
-
 function useClerkAuth() {
-  const [sessionId,     setSessionId]     = useState<string | null>(null);
-  const [sessionToken,  setSessionToken]  = useState<string | null>(null);
-  const [convexToken,   setConvexToken]   = useState<string | null>(null);
-  const [convexExpiry,  setConvexExpiry]  = useState<number | null>(null);
-  const [userInfo,      setUserInfo]      = useState<ClerkUserInfo | null>(null);
-  const [authLoading,   setAuthLoading]   = useState(!!CLERK_KEY);
+  const { isSignedIn, getToken, signOut: clerkSignOut } = useAuth();
+  const { user, isLoaded } = useUser();
 
-  // Stable refs so callbacks don't need to re-create on every state change
-  const sidRef    = useRef<string | null>(null);
-  const stokRef   = useRef<string | null>(null);
-  const cvxRef    = useRef<string | null>(null);
-  const cvxExpRef = useRef<number | null>(null);
-  sidRef.current    = sessionId;
-  stokRef.current   = sessionToken;
-  cvxRef.current    = convexToken;
-  cvxExpRef.current = convexExpiry;
-
-  // Restore session from SecureStore on mount
-  useEffect(() => {
-    if (!CLERK_KEY) return;
-    (async () => {
-      try {
-        const sid  = await SecureStore.getItemAsync(CLERK_SESSION_ID_KEY);
-        const stok = await SecureStore.getItemAsync(CLERK_SESSION_TOK_KEY);
-        if (sid && stok) {
-          const { jwt, expiry } = await clerkGetConvexJwt(sid, stok);
-          const info = await clerkGetUserInfo(sid, stok);
-          setSessionId(sid);
-          setSessionToken(stok);
-          setConvexToken(jwt);
-          setConvexExpiry(expiry);
-          setUserInfo(info);
-        }
-      } catch {
-        // Stale / revoked session — purge storage
-        await SecureStore.deleteItemAsync(CLERK_SESSION_ID_KEY).catch(() => null);
-        await SecureStore.deleteItemAsync(CLERK_SESSION_TOK_KEY).catch(() => null);
-      } finally {
-        setAuthLoading(false);
-      }
-    })();
-  }, []);
+  const userInfo: ClerkUserInfo | null = user ? {
+    email: user.emailAddresses?.[0]?.emailAddress ?? '',
+    name: user.fullName ?? null,
+  } : null;
 
   const getConvexToken = useCallback(async (): Promise<string | null> => {
-    const sid  = sidRef.current;
-    const stok = stokRef.current;
-    if (!sid || !stok) return null;
-    // Return cached token if still fresh
-    if (cvxRef.current && cvxExpRef.current && Date.now() < cvxExpRef.current) {
-      return cvxRef.current;
-    }
     try {
-      const { jwt, expiry } = await clerkGetConvexJwt(sid, stok);
-      setConvexToken(jwt);
-      setConvexExpiry(expiry);
-      cvxRef.current    = jwt;
-      cvxExpRef.current = expiry;
-      return jwt;
+      return await getToken({ template: 'convex' });
     } catch { return null; }
-  }, []); // stable — reads via refs
+  }, [getToken]);
 
-  const signIn = useCallback(async (): Promise<void> => {
-    if (!CLERK_KEY) return;
-    const redirectUri = makeRedirectUri({ scheme: 'timerai', path: 'callback' });
-    const signInUrl = `${CLERK_DOMAIN}/sign-in?redirect_url=${encodeURIComponent(redirectUri)}`;
-    const result = await WebBrowser.openAuthSessionAsync(signInUrl, redirectUri);
-    if (result.type !== 'success') throw new Error('Sign-in cancelled or dismissed');
+  const signOut = useCallback(async () => {
+    try { await clerkSignOut(); } catch {}
+  }, [clerkSignOut]);
 
-    // Parse ticket from redirect URL without relying on URL constructor polyfill
-    const rawUrl: string = result.url;
-    const qIdx = rawUrl.indexOf('?');
-    const params = new URLSearchParams(qIdx >= 0 ? rawUrl.slice(qIdx + 1) : '');
-    const ticket = params.get('__clerk_ticket');
-    if (!ticket) throw new Error('No __clerk_ticket in redirect — check Clerk sign-in URL config');
-
-    const { sessionId: sid, sessionToken: stok } = await clerkExchangeTicket(ticket);
-    const { jwt, expiry } = await clerkGetConvexJwt(sid, stok);
-    const info = await clerkGetUserInfo(sid, stok);
-
-    await SecureStore.setItemAsync(CLERK_SESSION_ID_KEY,  sid);
-    await SecureStore.setItemAsync(CLERK_SESSION_TOK_KEY, stok);
-
-    setSessionId(sid);
-    setSessionToken(stok);
-    setConvexToken(jwt);
-    setConvexExpiry(expiry);
-    setUserInfo(info);
-  }, []);
-
-  const signOut = useCallback(async (): Promise<void> => {
-    await SecureStore.deleteItemAsync(CLERK_SESSION_ID_KEY).catch(() => null);
-    await SecureStore.deleteItemAsync(CLERK_SESSION_TOK_KEY).catch(() => null);
-    setSessionId(null);
-    setSessionToken(null);
-    setConvexToken(null);
-    setConvexExpiry(null);
-    setUserInfo(null);
-  }, []);
-
-  return { isSignedIn: !!sessionId, userInfo, authLoading, signIn, signOut, getConvexToken };
+  return {
+    isSignedIn: !!isSignedIn,
+    userInfo,
+    authLoading: !isLoaded,
+    signIn: async () => {}, // Handled by SignIn component, not imperative
+    signOut,
+    getConvexToken,
+  };
 }
 
 // ─── EditableChip ─────────────────────────────────────────────────────────────
@@ -459,73 +330,149 @@ function SettingsRow({ label, desc, children, C }: {
 // ─── Browser-Based Sign-In Modal ─────────────────────────────────────────────
 // Opens Clerk's hosted sign-in page via expo-web-browser; no ClerkProvider needed.
 
-function BrowserSignInModal({ visible, onClose, onSignIn, C }: {
+function ClerkSignInModal({ visible, onClose, C }: {
   visible: boolean;
   onClose: () => void;
-  onSignIn: () => Promise<void>;
   C: Colors;
 }) {
+  const { signIn, setActive, isLoaded } = useSignIn();
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [pendingVerification, setPendingVerification] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSignIn() {
+  async function handleEmailSignIn() {
+    if (!signIn) {
+      setError('Clerk not ready');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await onSignIn();
-      onClose();
+      // Core 3 API: create() identifies the user, then use signIn.emailCode to send/verify
+      await signIn.create({ identifier: email });
+      
+      if (signIn.status === 'complete') {
+        if (setActive) await setActive({ session: signIn.createdSessionId });
+        onClose();
+        return;
+      }
+
+      // Core 3: use signIn.emailCode.sendCode() instead of prepareFirstFactor
+      await (signIn as any).emailCode.sendCode();
+      setPendingVerification(true);
     } catch (e: any) {
-      setError(e?.message ?? 'Sign-in failed. Try again.');
+      const msg = e?.errors?.[0]?.longMessage ?? e?.errors?.[0]?.message ?? e?.message ?? 'Unknown error';
+      setError(msg);
     } finally {
       setBusy(false);
     }
   }
 
+  async function handleVerifyCode() {
+    if (!signIn) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Core 3: verify the code
+      await (signIn as any).emailCode.verifyCode({ code });
+      
+      // Core 3: finalize() creates the session — this is the critical step
+      if (signIn.status === 'complete') {
+        await (signIn as any).finalize({
+          navigate: () => {}, // No navigation in RN
+        });
+      }
+      
+      await new Promise(r => setTimeout(r, 500));
+      onClose();
+    } catch (e: any) {
+      setError(e?.errors?.[0]?.message ?? e?.message ?? 'Invalid code');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleClose() {
+    setEmail('');
+    setCode('');
+    setPendingVerification(false);
+    setError(null);
+    onClose();
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity
-        style={siS.backdrop}
-        activeOpacity={1}
-        onPress={onClose}
-      />
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
+      <TouchableOpacity style={siS.backdrop} activeOpacity={1} onPress={handleClose} />
       <View style={[siS.sheet, { backgroundColor: C.surface, borderColor: C.border2 }]}>
-        {/* Header */}
         <View style={[siS.header, { borderBottomColor: C.border }]}>
           <View style={[siS.headerAccent, { backgroundColor: C.accent }]} />
           <Text style={[siS.title, { color: C.text2, fontFamily: C.mono }]}>SIGN IN</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={[siS.closeBtn, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
           </TouchableOpacity>
         </View>
 
         <View style={siS.body}>
-          <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
-            Sign in to save and sync your presets across devices.
-          </Text>
-
           {error && (
-            <Text style={[siS.error, { color: '#FF6644', fontFamily: C.mono }]}>
-              ⚠ {error}
-            </Text>
+            <Text style={[siS.error, { color: '#FF6644', fontFamily: C.mono }]}>⚠ {error}</Text>
           )}
 
-          <TouchableOpacity
-            style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
-            onPress={handleSignIn}
-            disabled={busy}
-            activeOpacity={0.7}
-          >
-            {busy
-              ? <ActivityIndicator size="small" color={C.accent} />
-              : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>
-                  SIGN IN
-                </Text>
-            }
-          </TouchableOpacity>
-
-          <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono, marginTop: 4 }]}>
-            A browser window will open to complete sign-in securely.
-          </Text>
+          {!pendingVerification ? (
+            <>
+              <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
+                Enter your email to sign in or create an account.
+              </Text>
+              <TextInput
+                style={[siS.input, { color: C.text, borderColor: C.border2, backgroundColor: C.surface2, fontFamily: C.mono }]}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="email@example.com"
+                placeholderTextColor={C.text4}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
+                onPress={handleEmailSignIn}
+                disabled={busy || !email.trim()}
+                activeOpacity={0.7}
+              >
+                {busy
+                  ? <ActivityIndicator size="small" color={C.accent} />
+                  : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>CONTINUE</Text>
+                }
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
+                Enter the verification code sent to {email}
+              </Text>
+              <TextInput
+                style={[siS.input, { color: C.text, borderColor: C.border2, backgroundColor: C.surface2, fontFamily: C.mono }]}
+                value={code}
+                onChangeText={setCode}
+                placeholder="Verification code"
+                placeholderTextColor={C.text4}
+                keyboardType="number-pad"
+                autoFocus
+              />
+              <TouchableOpacity
+                style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
+                onPress={handleVerifyCode}
+                disabled={busy || !code.trim()}
+                activeOpacity={0.7}
+              >
+                {busy
+                  ? <ActivityIndicator size="small" color={C.accent} />
+                  : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>VERIFY</Text>
+                }
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -564,6 +511,13 @@ const siS = StyleSheet.create({
     alignItems: 'center',
   },
   oauthBtnText: { fontSize: 12, fontWeight: '700', letterSpacing: 2 },
+  input: {
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
 });
 
 // ─── User section in settings ─────────────────────────────────────────────────
@@ -1687,10 +1641,9 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
 
       {/* Sign-in modal (Clerk only) */}
       {clerkEnabled && (
-        <BrowserSignInModal
+        <ClerkSignInModal
           visible={signInOpen}
           onClose={() => setSignInOpen(false)}
-          onSignIn={signIn}
           C={DARK} // always dark for modal
         />
       )}
@@ -1935,8 +1888,16 @@ const S = StyleSheet.create({
 });
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
-// No ClerkProvider needed — auth is handled via browser-based flow in useClerkAuth.
+// tokenCache imported from @clerk/expo/token-cache (uses expo-secure-store internally)
 
 export default function App() {
-  return <AppContent clerkEnabled={!!CLERK_KEY} />;
+  if (!CLERK_KEY) {
+    return <AppContent clerkEnabled={false} />;
+  }
+
+  return (
+    <ClerkProvider publishableKey={CLERK_KEY} tokenCache={tokenCache}>
+      <AppContent clerkEnabled={true} />
+    </ClerkProvider>
+  );
 }
