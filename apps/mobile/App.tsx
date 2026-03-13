@@ -1218,7 +1218,7 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
                   <TextInput
                     style={[S.textInput, { color: C.text, fontFamily: C.mono }]}
                     value={inputText}
-                    onChangeText={setInputText}
+                    onChangeText={t => setInputText(t.replace(/\uFFFC/g, ''))}
                     placeholder="Describe your workout…"
                     placeholderTextColor={C.text4}
                     multiline

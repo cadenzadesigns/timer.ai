@@ -41,6 +41,12 @@
       "@clerk/expo",
       "./plugins/withClerkViewFactory"
     ],
+    "updates": {
+      "url": "https://u.expo.dev/0130bdd2-92f8-4ede-b399-4c0133895380"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "extra": {
       "eas": {
         "projectId": "0130bdd2-92f8-4ede-b399-4c0133895380"

@@ -248,7 +248,7 @@ export function NLInput({ onConfig, disabled }: Props) {
           ref={textareaRef}
           className="nl-textarea"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => setText(e.target.value.replace(/\uFFFC/g, ''))}
           onKeyDown={handleKeyDown}
           placeholder="Describe your workout… e.g. Tabata, 30 on 15 off 6 rounds, EMOM 10 min"
           rows={2}
