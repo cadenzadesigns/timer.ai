@@ -7,32 +7,30 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "ios": {
-        "simulator": false
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://stoic-cardinal-170.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_Y2VydGFpbi1oYWxpYnV0LTEzLmNsZXJrLmFjY291bnRzLmRldiQ"
       }
     },
     "preview": {
       "distribution": "internal",
-      "ios": {
-        "simulator": false
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://stoic-cardinal-170.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_Y2VydGFpbi1oYWxpYnV0LTEzLmNsZXJrLmFjY291bnRzLmRldiQ"
       }
     },
     "production": {
       "autoIncrement": true,
-      "ios": {
-        "image": "latest"
-      },
-      "android": {
-        "image": "latest"
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://stoic-cardinal-170.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_Y2VydGFpbi1oYWxpYnV0LTEzLmNsZXJrLmFjY291bnRzLmRldiQ"
       }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": ""
+        "appleTeamId": "97W7HGYXSH"
       }
     }
   }

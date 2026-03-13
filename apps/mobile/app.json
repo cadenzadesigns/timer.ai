@@ -18,9 +18,14 @@
       "bundleIdentifier": "com.cadenzadesigns.timerai",
       "buildNumber": "1",
       "supportsTablet": false,
+      "appleTeamId": "97W7HGYXSH",
+      "entitlements": {
+        "com.apple.developer.applesignin": ["Default"]
+      },
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Used for voice workout input",
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": ["audio"],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -33,11 +38,12 @@
       "expo-av",
       "expo-secure-store",
       "expo-web-browser",
-      "@clerk/expo"
+      "@clerk/expo",
+      "./plugins/withClerkViewFactory"
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "0130bdd2-92f8-4ede-b399-4c0133895380"
       }
     },
     "owner": "cadenzadesigns"
