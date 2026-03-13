@@ -22,6 +22,16 @@ npx tsc --noEmit --project apps/web/tsconfig.json
 cd apps/web
 bunx convex dev --once                   # Deploy Convex functions
 bunx convex env set ANTHROPIC_API_KEY sk-ant-...
+
+# EAS Build (from apps/mobile)
+npx eas-cli@latest build --platform ios --profile production   # App Store build
+npx eas-cli@latest submit --platform ios --latest              # Submit to TestFlight
+npx eas-cli@latest login                                       # Auth with Expo account
+
+# Simulator interaction
+xcrun simctl io booted screenshot /tmp/screenshot.png          # Take screenshot
+xcrun simctl terminate booted com.cadenzadesigns.timerai       # Kill app
+xcrun simctl launch booted com.cadenzadesigns.timerai          # Relaunch app
 ```
 
 ## Architecture
@@ -42,7 +52,7 @@ Mobile app calls Convex via raw `fetch()` to the HTTP API (see `convexCall()` in
 ### Mobile Auth (Clerk)
 - Uses native `AuthView` from `@clerk/expo/native` (SwiftUI on iOS, Jetpack Compose on Android)
 - Requires `@clerk/expo` in `app.json` plugins + `npx expo prebuild`
-- `ClerkViewFactory.swift` must be in the iOS Xcode project (prebuild may skip injection — copy manually from `node_modules/@clerk/expo/ios/templates/`)
+- `ClerkViewFactory.swift` must be in the iOS Xcode project. The `@clerk/expo` plugin often fails to inject it. Fixed by custom plugin `plugins/withClerkViewFactory.js` which copies the template and adds it to the Xcode project automatically — works for both local and EAS cloud builds.
 - `navigator.onLine` polyfill at top of App.tsx prevents `clerk_offline` errors from `getToken()`
 
 ### React DOM Shims (Mobile)
@@ -52,6 +62,9 @@ Mobile app calls Convex via raw `fetch()` to the HTTP API (see `convexCall()` in
 Both web and mobile apps check for env vars at startup. If `CLERK_KEY` is missing, auth is disabled. If `CONVEX_URL` is missing, NL parsing and presets are disabled. The app always works standalone.
 
 ## Environment Variables
+
+### EAS Build (`apps/mobile/eas.json`)
+Env vars are configured per-profile in `eas.json` `env` blocks. EAS project ID: `0130bdd2-92f8-4ede-b399-4c0133895380`.
 
 ### Web (`apps/web/.env.local`)
 - `VITE_CONVEX_URL` — Convex deployment URL
@@ -64,8 +77,18 @@ Both web and mobile apps check for env vars at startup. If `CLERK_KEY` is missin
 ### Convex (server-side)
 - `ANTHROPIC_API_KEY` — For NL workout parsing
 
+## Apple Developer
+
+- **Team ID**: `97W7HGYXSH` (Christian Sanders, Individual)
+- **Bundle ID**: `com.cadenzadesigns.timerai`
+- **Capabilities**: Sign In with Apple, Associated Domains
+- **EAS owner**: `cadenzadesigns` on expo.dev
+
 ## Gotchas
 
+- **EAS Build requires interactive mode** the first time — Apple signing certs/profiles need interactive prompts. After first setup, `--non-interactive` works.
+- **`expo doctor` Metro config warning is expected** — custom `watchFolders` and `resolver` for monorepo + react-dom shims trigger a warning. Not a build blocker.
+- **Web + mobile UI alignment** — auth lives in the settings sheet on both platforms. Config summary uses labeled format. Presets section is collapsible.
 - **`npx expo prebuild` required** after changing `app.json` plugins or native dependencies. The `ios/` and `android/` dirs are gitignored.
 - **Xcode must be selected** (`sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`) — not just Command Line Tools. Required for simulator.
 - **`as any` on Animated styles** — The one remaining `as any` cast in mobile App.tsx (Animated.Text style array) is a React Native framework limitation, not a bug.
