@@ -21,6 +21,7 @@ import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { TimerRing } from './src/components/TimerRing';
 import { useTimer } from './src/hooks/useTimer';
 import { useAudio } from './src/hooks/useAudio';
+import Svg, { Circle, Path as SvgPath } from 'react-native-svg';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -497,6 +498,7 @@ function AuthAwarePresets({
     org: [],
   });
   const [savingPreset, setSavingPreset] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const fetchWithAuth = useCallback(async (
     endpoint: 'query' | 'mutation' | 'action',
@@ -551,9 +553,24 @@ function AuthAwarePresets({
 
   return (
     <View style={S.presetsSection}>
-      <SectionDivider label="PRESETS" C={C} />
+      <TouchableOpacity onPress={() => setCollapsed(c => !c)} activeOpacity={0.7}>
+        <View style={divS.row}>
+          <View style={[divS.line, { backgroundColor: C.border }]} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[divS.label, { color: C.text4, fontFamily: C.mono }]}>PRESETS</Text>
+            <Svg width={10} height={10} viewBox="0 0 10 10" fill="none" stroke={C.text2} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              {collapsed
+                ? <SvgPath d="M3 1 L7 5 L3 9" />
+                : <SvgPath d="M1 3 L5 7 L9 3" />
+              }
+            </Svg>
+          </View>
+          <View style={[divS.line, { backgroundColor: C.border }]} />
+        </View>
+      </TouchableOpacity>
 
-      {/* Save row */}
+      {!collapsed && <>
+      {/* Scope toggle + Save row */}
       <View style={S.presetsTitleRow}>
         {isSignedIn ? (
           <TouchableOpacity
@@ -603,9 +620,6 @@ function AuthAwarePresets({
 
             {presets.org.length > 0 && (
               <>
-                <Text style={[presS.sectionLabel, { color: C.text4, fontFamily: C.mono }]}>
-                  TEAM
-                </Text>
                 {presets.org.map(p => (
                   <PresetCard
                     key={p._id}
@@ -624,25 +638,12 @@ function AuthAwarePresets({
           Sign in to view and save presets
         </Text>
       )}
+      </>}
     </View>
   );
 }
 
 const presS = StyleSheet.create({
-  scopeToggle: { flexDirection: 'row', gap: 0, marginBottom: 10 },
-  scopeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 1,
-  },
-  scopeBtnText: { fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 4,
-    marginTop: 12,
-    marginBottom: 6,
-  },
   signInHint: {
     fontSize: 12,
     letterSpacing: 0.5,
@@ -1198,7 +1199,10 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
               onPress={() => setSettingsOpen(true)}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={[S.gearIcon, { color: C.text4 }]}>⚙</Text>
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={C.text4} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+                <Circle cx={12} cy={12} r={3} />
+                <SvgPath d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </Svg>
             </TouchableOpacity>
           </View>
 
@@ -1391,10 +1395,31 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
 
             {/* Config summary (idle) */}
             {isIdle && (
-              <Text style={[S.configSummary, { color: C.text4, fontFamily: C.mono }]}>
-                {config.work}s · {config.rest}s · {config.infinite ? '∞' : config.rounds + 'R'}
-                {config.sets > 1 ? ` · ${config.sets} SETS` : ''}
-              </Text>
+              <View style={S.configSummaryRow}>
+                <Text style={[S.configValue, { color: C.text2, fontFamily: C.mono }]}>
+                  {config.work}s{' '}
+                  <Text style={{ color: C.text4 }}>WORK</Text>
+                </Text>
+                <Text style={[S.configDot, { color: C.text4 }]}>·</Text>
+                <Text style={[S.configValue, { color: C.text2, fontFamily: C.mono }]}>
+                  {config.rest}s{' '}
+                  <Text style={{ color: C.text4 }}>REST</Text>
+                </Text>
+                <Text style={[S.configDot, { color: C.text4 }]}>·</Text>
+                <Text style={[S.configValue, { color: C.text2, fontFamily: C.mono }]}>
+                  {config.infinite ? '∞' : config.rounds}{' '}
+                  <Text style={{ color: C.text4 }}>RDS</Text>
+                </Text>
+                {config.sets > 1 && (
+                  <>
+                    <Text style={[S.configDot, { color: C.text4 }]}>·</Text>
+                    <Text style={[S.configValue, { color: C.text2, fontFamily: C.mono }]}>
+                      {config.sets}{' '}
+                      <Text style={{ color: C.text4 }}>SETS</Text>
+                    </Text>
+                  </>
+                )}
+              </View>
             )}
 
             {/* Workout complete */}
@@ -1532,7 +1557,6 @@ const S = StyleSheet.create({
   brandBracket: { fontSize: 18, fontWeight: '300', opacity: 0.6 },
   brand:    { fontSize: 17, fontWeight: '700', letterSpacing: 5 },
   tagline:  { fontSize: 15, letterSpacing: 1 },
-  gearIcon: { fontSize: 22 },
   headerLine: { width: '100%', height: 1, marginBottom: 20 },
 
   // NL Input
@@ -1640,11 +1664,19 @@ const S = StyleSheet.create({
     letterSpacing: 1.5,
     marginTop: 2,
   },
-  configSummary: {
-    fontSize: 14,
-    letterSpacing: 3,
+  configSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 14,
-    textTransform: 'uppercase',
+    gap: 8,
+  },
+  configValue: {
+    fontSize: 15,
+    letterSpacing: 1.5,
+  },
+  configDot: {
+    fontSize: 14,
   },
   completeMsg: {
     fontSize: 15,

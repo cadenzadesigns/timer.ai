@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import { ClerkProvider, useAuth } from '@clerk/clerk-react';
+import { dark } from '@clerk/themes';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import './index.css';
 import App from './App';
@@ -15,7 +16,7 @@ if (convexUrl && clerkKey) {
   const convex = new ConvexReactClient(convexUrl);
   root.render(
     <StrictMode>
-      <ClerkProvider publishableKey={clerkKey}>
+      <ClerkProvider publishableKey={clerkKey} appearance={{ baseTheme: dark }}>
         <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
           <App convexEnabled clerkEnabled />
         </ConvexProviderWithClerk>

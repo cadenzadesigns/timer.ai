@@ -473,11 +473,26 @@ body {
 /* ─── Config summary / Complete msg ──────────────────────────── */
 .config-summary {
   font-family: 'Share Tech Mono', monospace;
-  font-size: 18px;
-  color: var(--c-text-3);
-  letter-spacing: 0.15em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   margin-top: 12px;
   text-transform: uppercase;
+}
+.config-val {
+  font-size: 18px;
+  color: var(--c-text-2);
+  letter-spacing: 0.1em;
+}
+.config-label {
+  font-size: 12px;
+  color: var(--c-text-3);
+  letter-spacing: 0.2em;
+}
+.config-dot {
+  font-size: 16px;
+  color: var(--c-text-3);
 }
 
 .complete-msg {
@@ -523,6 +538,13 @@ body {
   font-size: 18px;
   letter-spacing: 0.3em;
   color: var(--c-text-3);
+}
+.presets-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.presets-toggle:hover {
+  color: var(--c-text-2);
 }
 
 .presets-header-right {
@@ -1139,6 +1161,46 @@ body {
   font-family: 'Share Tech Mono', monospace;
   font-size: 18px;
   color: var(--c-text-4);
+}
+
+/* ─── Settings account ───────────────────────────────────────── */
+.settings-account-name {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 14px;
+  color: var(--c-text-2);
+  letter-spacing: 0.03em;
+}
+.settings-sign-in-btn {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--c-accent, #FF3300);
+  background: none;
+  border: 1px solid var(--c-accent, #FF3300);
+  padding: 8px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.settings-sign-in-btn:hover {
+  background: var(--c-accent, #FF3300);
+  color: #fff;
+}
+.settings-sign-out-btn {
+  font-family: 'Syncopate', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--c-text-3);
+  background: none;
+  border: 1px solid var(--c-border-2);
+  padding: 8px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.settings-sign-out-btn:hover {
+  color: var(--c-text);
+  border-color: var(--c-text-3);
 }
 
 /* ─── Settings active note ───────────────────────────────────── */

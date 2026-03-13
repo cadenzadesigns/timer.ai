@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, SignInButton, useUser, useClerk } from '@clerk/clerk-react';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
 import { useTimer } from './hooks/useTimer';
@@ -68,6 +68,7 @@ interface SettingsSheetProps {
   isTimerActive: boolean;
   theme: 'dark' | 'light';
   onThemeToggle: () => void;
+  clerkEnabled: boolean;
 }
 
 function SettingsSheet({
@@ -78,6 +79,7 @@ function SettingsSheet({
   wakeLockActive,
   isTimerActive,
   theme, onThemeToggle,
+  clerkEnabled,
 }: SettingsSheetProps) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef<number | null>(null);
@@ -122,6 +124,24 @@ function SettingsSheet({
         </div>
 
         <div className="settings-body">
+          {/* Account */}
+          {clerkEnabled && (
+            <div className="settings-row settings-account-row">
+              <SignedIn>
+                <AccountSection />
+              </SignedIn>
+              <SignedOut>
+                <div className="settings-row-info">
+                  <span className="settings-label">ACCOUNT</span>
+                  <span className="settings-desc">Save and sync presets across devices</span>
+                </div>
+                <SignInButton mode="modal">
+                  <button className="settings-sign-in-btn">SIGN IN</button>
+                </SignInButton>
+              </SignedOut>
+            </div>
+          )}
+
           {/* Countdown Mode */}
           <div className="settings-row">
             <div className="settings-row-info">
@@ -239,6 +259,24 @@ function SettingsSheet({
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+function AccountSection() {
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const displayName = user?.fullName || user?.emailAddresses?.[0]?.emailAddress || 'Signed in';
+  const displayEmail = user?.fullName ? user?.emailAddresses?.[0]?.emailAddress : null;
+
+  return (
+    <>
+      <div className="settings-row-info">
+        <span className="settings-label">ACCOUNT</span>
+        <span className="settings-account-name">{displayName}</span>
+        {displayEmail && <span className="settings-desc">{displayEmail}</span>}
+      </div>
+      <button className="settings-sign-out-btn" onClick={() => signOut()}>SIGN OUT</button>
     </>
   );
 }
@@ -443,25 +481,6 @@ export default function App({ convexEnabled = false, clerkEnabled = false }: App
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
               </svg>
             </button>
-            {clerkEnabled && (
-              <>
-                <SignedOut>
-                  <SignInButton mode="modal">
-                    <button className="auth-sign-in-btn">SIGN IN</button>
-                  </SignInButton>
-                </SignedOut>
-                <SignedIn>
-                  <UserButton
-                    appearance={{
-                      elements: {
-                        avatarBox: 'clerk-avatar-box',
-                        userButtonTrigger: 'clerk-user-trigger',
-                      },
-                    }}
-                  />
-                </SignedIn>
-              </>
-            )}
           </div>
         </header>
 
@@ -537,8 +556,17 @@ export default function App({ convexEnabled = false, clerkEnabled = false }: App
           {/* Config summary (idle) */}
           {isIdle && (
             <div className="config-summary">
-              {config.work}s · {config.rest}s · {config.infinite ? '∞' : config.rounds + 'R'}
-              {config.sets > 1 && ` · ${config.sets} SETS`}
+              <span className="config-val">{config.work}s <span className="config-label">WORK</span></span>
+              <span className="config-dot">·</span>
+              <span className="config-val">{config.rest}s <span className="config-label">REST</span></span>
+              <span className="config-dot">·</span>
+              <span className="config-val">{config.infinite ? '∞' : config.rounds} <span className="config-label">RDS</span></span>
+              {config.sets > 1 && (
+                <>
+                  <span className="config-dot">·</span>
+                  <span className="config-val">{config.sets} <span className="config-label">SETS</span></span>
+                </>
+              )}
             </div>
           )}
 
@@ -616,6 +644,7 @@ export default function App({ convexEnabled = false, clerkEnabled = false }: App
         isTimerActive={isRunning || isPaused}
         theme={theme}
         onThemeToggle={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+        clerkEnabled={clerkEnabled}
       />
     </div>
   );

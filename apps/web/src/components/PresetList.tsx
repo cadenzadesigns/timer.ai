@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from 'convex/react';
-import { SignedIn, SignedOut, SignInButton, useOrganization } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, SignInButton } from '@clerk/clerk-react';
 import { api } from '../../convex/_generated/api';
 import type { TimerConfig } from '@timer-ai/core';
 
@@ -34,9 +34,7 @@ function AuthPresetList({ onLoad, currentConfig, lastDescription }: Props) {
     | undefined;
   const createPreset = useMutation(api.presets.create);
   const removePreset = useMutation(api.presets.remove);
-  const { organization } = useOrganization();
-
-  const [scope, setScope] = useState<'personal' | 'org'>('personal');
+  const [collapsed, setCollapsed] = useState(false);
 
   function formatConfig(c: TimerConfig) {
     const work =
@@ -79,7 +77,7 @@ function AuthPresetList({ onLoad, currentConfig, lastDescription }: Props) {
     await createPreset({
       name,
       description: lastDescription || name,
-      scope: organization ? scope : 'personal',
+      scope: 'personal',
       config: currentConfig,
     });
   }
@@ -98,94 +96,64 @@ function AuthPresetList({ onLoad, currentConfig, lastDescription }: Props) {
   return (
     <div className="presets-section">
       <div className="presets-header">
-        <span className="presets-title">PRESETS</span>
+        <span className="presets-title presets-toggle" onClick={() => setCollapsed(c => !c)}>
+          PRESETS {collapsed ? '▸' : '▾'}
+        </span>
 
-        <SignedIn>
+        {!collapsed && <SignedIn>
           <div className="presets-header-right">
-            {/* Scope toggle — only when in an org */}
-            {organization && (
-              <div className="preset-scope-toggle">
-                <button
-                  className={`preset-scope-btn${scope === 'personal' ? ' active' : ''}`}
-                  onClick={() => setScope('personal')}
-                >
-                  PERSONAL
-                </button>
-                <button
-                  className={`preset-scope-btn${scope === 'org' ? ' active' : ''}`}
-                  onClick={() => setScope('org')}
-                >
-                  TEAM
-                </button>
-              </div>
-            )}
             <button className="btn-ghost preset-save-btn" onClick={handleSave}>
               + SAVE CURRENT
             </button>
           </div>
-        </SignedIn>
+        </SignedIn>}
 
-        <SignedOut>
+        {!collapsed && <SignedOut>
           <SignInButton mode="modal">
             <button className="btn-ghost preset-save-btn preset-signin-hint">
               SIGN IN TO SAVE
             </button>
           </SignInButton>
-        </SignedOut>
+        </SignedOut>}
       </div>
 
-      {/* Personal presets */}
-      <SignedIn>
-        {personal.length === 0 && org.length === 0 ? (
-          <div className="presets-empty">
-            No presets yet — parse a workout and save it
-          </div>
-        ) : (
-          <>
-            {personal.length > 0 && (
-              <>
-                {organization && (
-                  <div className="presets-section-label">PERSONAL</div>
-                )}
-                <div className="presets-list">
-                  {personal.map((preset: any) => (
-                    <PresetCard
-                      key={preset._id}
-                      preset={preset}
-                      onLoad={() => onLoad(preset.config as TimerConfig)}
-                      onDelete={() => removePreset({ id: preset._id })}
-                      formatConfig={formatConfig}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
+      {!collapsed && <>
+        {/* Personal presets */}
+        <SignedIn>
+          {personal.length === 0 && org.length === 0 ? (
+            <div className="presets-empty">
+              No presets yet — parse a workout and save it
+            </div>
+          ) : (
+            <>
+              <div className="presets-list">
+                {personal.map((preset: any) => (
+                  <PresetCard
+                    key={preset._id}
+                    preset={preset}
+                    onLoad={() => onLoad(preset.config as TimerConfig)}
+                    onDelete={() => removePreset({ id: preset._id })}
+                    formatConfig={formatConfig}
+                  />
+                ))}
+                {org.map((preset: any) => (
+                  <PresetCard
+                    key={preset._id}
+                    preset={preset}
+                    onLoad={() => onLoad(preset.config as TimerConfig)}
+                    onDelete={() => removePreset({ id: preset._id })}
+                    formatConfig={formatConfig}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </SignedIn>
 
-            {org.length > 0 && (
-              <>
-                <div className="presets-section-label">
-                  TEAM · {organization?.name}
-                </div>
-                <div className="presets-list">
-                  {org.map((preset: any) => (
-                    <PresetCard
-                      key={preset._id}
-                      preset={preset}
-                      onLoad={() => onLoad(preset.config as TimerConfig)}
-                      onDelete={() => removePreset({ id: preset._id })}
-                      formatConfig={formatConfig}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </SignedIn>
-
-      <SignedOut>
-        <div className="presets-empty">Sign in to view and save presets</div>
-      </SignedOut>
+        <SignedOut>
+          <div className="presets-empty">Sign in to view and save presets</div>
+        </SignedOut>
+      </>}
     </div>
   );
 }
