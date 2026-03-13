@@ -7,7 +7,12 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as SecureStore from 'expo-secure-store';
-import { ClerkProvider, useAuth, useUser, useSignIn } from '@clerk/expo';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import { ClerkProvider, useAuth, useUser, useSignIn, useSignUp, useSSO } from '@clerk/expo';
+import * as AuthSession from 'expo-auth-session';
+
+WebBrowser.maybeCompleteAuthSession();
 import { tokenCache } from '@clerk/expo/token-cache';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
@@ -147,6 +152,7 @@ interface ClerkUserInfo { email: string; name: string | null }
 function useClerkAuth() {
   const { isSignedIn, getToken, signOut: clerkSignOut } = useAuth();
   const { user, isLoaded } = useUser();
+  const [signInVisible, setSignInVisible] = useState(false);
 
   const userInfo: ClerkUserInfo | null = user ? {
     email: user.emailAddresses?.[0]?.emailAddress ?? '',
@@ -167,9 +173,11 @@ function useClerkAuth() {
     isSignedIn: !!isSignedIn,
     userInfo,
     authLoading: !isLoaded,
-    signIn: async () => {}, // Handled by SignIn component, not imperative
+    signIn: () => setSignInVisible(true),
     signOut,
     getConvexToken,
+    signInVisible,
+    closeSignIn: () => setSignInVisible(false),
   };
 }
 
@@ -327,155 +335,258 @@ function SettingsRow({ label, desc, children, C }: {
   );
 }
 
-// ─── Browser-Based Sign-In Modal ─────────────────────────────────────────────
-// Opens Clerk's hosted sign-in page via expo-web-browser; no ClerkProvider needed.
-
-function ClerkSignInModal({ visible, onClose, C }: {
-  visible: boolean;
-  onClose: () => void;
-  C: Colors;
-}) {
-  const { signIn, setActive, isLoaded } = useSignIn();
+// ─── Custom Sign-In Modal ────────────────────────────────────────────────────
+// Full custom sign-in: email code + OAuth (Google). Works in Expo Go.
+function SignInModal({ visible, onClose, C }: { visible: boolean; onClose: () => void; C: Colors }) {
+  const { signIn, setActive } = useSignIn() as any;
+  const { signUp, setActive: setActiveSignUp } = useSignUp() as any;
+  const { startSSOFlow } = useSSO();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
-  const [pendingVerification, setPendingVerification] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<'choose' | 'email' | 'code'>('choose');
+  const [isNewUser, setIsNewUser] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  async function handleEmailSignIn() {
-    if (!signIn) {
-      setError('Clerk not ready');
-      return;
-    }
-    setBusy(true);
-    setError(null);
+  const handleClose = useCallback(() => {
+    setEmail(''); setCode(''); setStep('choose'); setError(''); setLoading(false); setIsNewUser(false);
+    onClose();
+  }, [onClose]);
+
+  // Email code flow — tries sign-in first, falls back to sign-up for new users
+  const handleSendCode = useCallback(async () => {
+    if (!email.trim()) return;
+    setError(''); setLoading(true);
     try {
-      // Core 3 API: create() identifies the user, then use signIn.emailCode to send/verify
-      await signIn.create({ identifier: email });
+      // Try sign-in first
+      await signIn.create({ identifier: email.trim() });
       
-      if (signIn.status === 'complete') {
-        if (setActive) await setActive({ session: signIn.createdSessionId });
-        onClose();
+      // Core 3: if status is still needs_identifier, user doesn't exist → sign up
+      if (signIn.status === 'needs_identifier') {
+        // User not found — switch to sign-up
+        try {
+          const res = await signUp.create({ emailAddress: email.trim() });
+          Alert.alert('DEBUG signUp.create', JSON.stringify({ status: signUp.status, resStatus: res?.status, unverified: signUp.unverifiedFields, missing: signUp.missingFields }, null, 2));
+          // If unverifiedFields includes email, we need to explicitly prepare verification
+          if (signUp.status === 'missing_requirements' && signUp.unverifiedFields?.includes?.('email_address')) {
+            if (signUp.prepareEmailAddressVerification) {
+              await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+              Alert.alert('DEBUG', 'prepareEmailAddressVerification called (legacy API)');
+            } else if (signUp.verifications?.emailAddress?.prepareVerification) {
+              await signUp.verifications.emailAddress.prepareVerification({ strategy: 'email_code' });
+              Alert.alert('DEBUG', 'verifications.emailAddress.prepareVerification called');
+            }
+          }
+          setIsNewUser(true);
+          setStep('code');
+        } catch (signUpErr: any) {
+          Alert.alert('DEBUG signUp error', JSON.stringify(signUpErr?.errors ?? signUpErr?.message, null, 2));
+          setError(signUpErr?.errors?.[0]?.longMessage ?? signUpErr?.message ?? 'Sign-up failed');
+        }
         return;
       }
-
-      // Core 3: use signIn.emailCode.sendCode() instead of prepareFirstFactor
-      await (signIn as any).emailCode.sendCode();
-      setPendingVerification(true);
-    } catch (e: any) {
-      const msg = e?.errors?.[0]?.longMessage ?? e?.errors?.[0]?.message ?? e?.message ?? 'Unknown error';
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleVerifyCode() {
-    if (!signIn) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Core 3: verify the code
-      await (signIn as any).emailCode.verifyCode({ code });
       
-      // Core 3: finalize() creates the session — this is the critical step
-      if (signIn.status === 'complete') {
-        await (signIn as any).finalize({
-          navigate: () => {}, // No navigation in RN
-        });
+      // User exists — send sign-in code
+      if (signIn.emailCode?.sendCode) {
+        await signIn.emailCode.sendCode();
+      } else {
+        const emailFactor = signIn.supportedFirstFactors?.find(
+          (f: any) => f.strategy === 'email_code'
+        );
+        if (emailFactor) {
+          await signIn.prepareFirstFactor({ strategy: 'email_code', emailAddressId: emailFactor.emailAddressId });
+        }
       }
-      
-      await new Promise(r => setTimeout(r, 500));
-      onClose();
+      setIsNewUser(false);
+      setStep('code');
     } catch (e: any) {
-      setError(e?.errors?.[0]?.message ?? e?.message ?? 'Invalid code');
-    } finally {
-      setBusy(false);
-    }
-  }
+      const errCode = e?.errors?.[0]?.code;
+      // Also catch form_identifier_not_found (older API behavior)
+      if (errCode === 'form_identifier_not_found') {
+        try {
+          await signUp.create({ emailAddress: email.trim() });
+          setIsNewUser(true);
+          setStep('code');
+        } catch (e2: any) {
+          setError(e2?.errors?.[0]?.longMessage ?? e2?.message ?? 'Failed to send code');
+        }
+      } else {
+        setError(e?.errors?.[0]?.longMessage ?? e?.message ?? 'Failed to send code');
+      }
+    } finally { setLoading(false); }
+  }, [signIn, signUp, email]);
 
-  function handleClose() {
-    setEmail('');
-    setCode('');
-    setPendingVerification(false);
-    setError(null);
-    onClose();
-  }
+  const handleVerifyCode = useCallback(async () => {
+    if (!code.trim()) return;
+    setError(''); setLoading(true);
+    try {
+      if (isNewUser) {
+        // Sign-up verification — Core 3 uses verifyEmailCode
+        let result: any;
+        if (signUp.verifyEmailCode) {
+          result = await signUp.verifyEmailCode({ code: code.trim() });
+        } else {
+          result = await signUp.attemptEmailAddressVerification({ code: code.trim() });
+        }
+        const status = signUp.status ?? result?.status;
+        if (status === 'complete') {
+          const sessionId = signUp.createdSessionId ?? result?.createdSessionId;
+          if (sessionId && setActiveSignUp) await setActiveSignUp({ session: sessionId });
+          handleClose();
+        } else {
+          setError('Verification incomplete — try again');
+        }
+      } else {
+        // Sign-in verification
+        let result: any;
+        if (signIn.emailCode?.verifyCode) {
+          result = await signIn.emailCode.verifyCode({ code: code.trim() });
+        } else {
+          result = await signIn.attemptFirstFactor({ strategy: 'email_code', code: code.trim() });
+        }
+        const status = signIn.status ?? result?.status;
+        const sessionId = signIn.createdSessionId ?? result?.createdSessionId;
+        if (status === 'complete' && sessionId && setActive) {
+          await setActive({ session: sessionId });
+          handleClose();
+        } else {
+          setError('Verification incomplete — try again');
+        }
+      }
+    } catch (e: any) {
+      setError(e?.errors?.[0]?.longMessage ?? e?.message ?? 'Invalid code');
+    } finally { setLoading(false); }
+  }, [signIn, signUp, setActive, setActiveSignUp, code, isNewUser, handleClose]);
+
+  // Google OAuth flow
+  const handleGoogleSignIn = useCallback(async () => {
+    setError(''); setLoading(true);
+    try {
+      const { createdSessionId, setActive: ssoSetActive } = await startSSOFlow({
+        strategy: 'oauth_google',
+        redirectUrl: AuthSession.makeRedirectUri({ path: 'sso-callback' }),
+        redirectUrlComplete: AuthSession.makeRedirectUri({ path: '/' }),
+      });
+      if (createdSessionId) {
+        await ssoSetActive?.({ session: createdSessionId });
+        handleClose();
+      }
+    } catch (e: any) {
+      setError(e?.errors?.[0]?.longMessage ?? e?.message ?? 'Google sign-in failed');
+    } finally { setLoading(false); }
+  }, [startSSOFlow, handleClose]);
+
+  if (!visible) return null;
+
+  const mono = Platform.select({ ios: 'Menlo', android: 'monospace' }) as string;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <TouchableOpacity style={siS.backdrop} activeOpacity={1} onPress={handleClose} />
-      <View style={[siS.sheet, { backgroundColor: C.surface, borderColor: C.border2 }]}>
+    <View style={siS.backdrop}>
+      <View style={[siS.sheet, { backgroundColor: C.bg, borderColor: C.border }]}>
         <View style={[siS.header, { borderBottomColor: C.border }]}>
           <View style={[siS.headerAccent, { backgroundColor: C.accent }]} />
-          <Text style={[siS.title, { color: C.text2, fontFamily: C.mono }]}>SIGN IN</Text>
-          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={[siS.closeBtn, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
+          <Text style={[siS.title, { color: C.text, fontFamily: mono }]}>
+            {step === 'code' ? 'ENTER CODE' : 'SIGN IN / UP'}
+          </Text>
+          <TouchableOpacity onPress={handleClose}>
+            <Text style={[siS.closeBtn, { color: C.text2 }]}>✕</Text>
           </TouchableOpacity>
         </View>
-
         <View style={siS.body}>
-          {error && (
-            <Text style={[siS.error, { color: '#FF6644', fontFamily: C.mono }]}>⚠ {error}</Text>
+          {error ? <Text style={[siS.error, { color: '#ff4444' }]}>{error}</Text> : null}
+
+          {step === 'choose' && (
+            <>
+              <Text style={[siS.tagline, { color: C.text2, fontFamily: mono }]}>
+                Sign in or create an account
+              </Text>
+              <TouchableOpacity
+                style={[siS.oauthBtn, { borderColor: C.border }]}
+                onPress={() => setStep('email')}
+              >
+                <Text style={[siS.oauthBtnText, { color: C.text, fontFamily: mono }]}>
+                  ✉  EMAIL CODE
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[siS.oauthBtn, { borderColor: C.border, opacity: loading ? 0.5 : 1 }]}
+                onPress={handleGoogleSignIn}
+                disabled={loading}
+              >
+                <Text style={[siS.oauthBtnText, { color: C.text, fontFamily: mono }]}>
+                  {loading ? 'LOADING...' : 'G  GOOGLE'}
+                </Text>
+              </TouchableOpacity>
+            </>
           )}
 
-          {!pendingVerification ? (
+          {step === 'email' && (
             <>
-              <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
-                Enter your email to sign in or create an account.
+              <Text style={[siS.tagline, { color: C.text2, fontFamily: mono }]}>
+                Enter your email to receive a sign-in code.
               </Text>
               <TextInput
-                style={[siS.input, { color: C.text, borderColor: C.border2, backgroundColor: C.surface2, fontFamily: C.mono }]}
+                style={[siS.input, { borderColor: C.border, color: C.text, backgroundColor: C.surface, fontFamily: mono }]}
+                placeholder="EMAIL"
+                placeholderTextColor={C.text2}
                 value={email}
                 onChangeText={setEmail}
-                placeholder="email@example.com"
-                placeholderTextColor={C.text4}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
+                editable={!loading}
               />
               <TouchableOpacity
-                style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
-                onPress={handleEmailSignIn}
-                disabled={busy || !email.trim()}
-                activeOpacity={0.7}
+                style={[siS.oauthBtn, { borderColor: C.accent, opacity: loading ? 0.5 : 1 }]}
+                onPress={handleSendCode}
+                disabled={loading}
               >
-                {busy
-                  ? <ActivityIndicator size="small" color={C.accent} />
-                  : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>CONTINUE</Text>
-                }
+                <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: mono }]}>
+                  {loading ? 'SENDING...' : 'SEND CODE'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setStep('choose'); setError(''); }}>
+                <Text style={{ color: C.text2, fontSize: 11, textAlign: 'center', letterSpacing: 1, fontFamily: mono }}>
+                  ← BACK
+                </Text>
               </TouchableOpacity>
             </>
-          ) : (
+          )}
+
+          {step === 'code' && (
             <>
-              <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
-                Enter the verification code sent to {email}
+              <Text style={[siS.tagline, { color: C.text2, fontFamily: mono }]}>
+                Code sent to {email}
               </Text>
               <TextInput
-                style={[siS.input, { color: C.text, borderColor: C.border2, backgroundColor: C.surface2, fontFamily: C.mono }]}
+                style={[siS.input, { borderColor: C.border, color: C.text, backgroundColor: C.surface, fontFamily: mono }]}
+                placeholder="VERIFICATION CODE"
+                placeholderTextColor={C.text2}
                 value={code}
                 onChangeText={setCode}
-                placeholder="Verification code"
-                placeholderTextColor={C.text4}
                 keyboardType="number-pad"
-                autoFocus
+                autoCapitalize="none"
+                editable={!loading}
               />
               <TouchableOpacity
-                style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
+                style={[siS.oauthBtn, { borderColor: C.accent, opacity: loading ? 0.5 : 1 }]}
                 onPress={handleVerifyCode}
-                disabled={busy || !code.trim()}
-                activeOpacity={0.7}
+                disabled={loading}
               >
-                {busy
-                  ? <ActivityIndicator size="small" color={C.accent} />
-                  : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>VERIFY</Text>
-                }
+                <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: mono }]}>
+                  {loading ? 'VERIFYING...' : 'VERIFY'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setStep('email'); setCode(''); setError(''); }}>
+                <Text style={{ color: C.text2, fontSize: 11, textAlign: 'center', letterSpacing: 1, fontFamily: mono }}>
+                  ← BACK
+                </Text>
               </TouchableOpacity>
             </>
           )}
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -1145,7 +1256,7 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
   const C = theme === 'dark' ? DARK : LIGHT;
 
   // Auth (browser-based Clerk flow — no ClerkProvider)
-  const { isSignedIn, userInfo, signIn, signOut, getConvexToken } = useClerkAuth();
+  const { isSignedIn, userInfo, signIn, signOut, getConvexToken, signInVisible, closeSignIn } = useClerkAuth();
 
   // Config
   const [config, setConfig] = useState<TimerConfig>(DEFAULT_CONFIG);
@@ -1634,19 +1745,13 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
         clerkEnabled={clerkEnabled}
         isSignedIn={isSignedIn}
         userInfo={userInfo}
-        onSignIn={() => { setSettingsOpen(false); setSignInOpen(true); }}
+        onSignIn={() => { setSettingsOpen(false); signIn(); }}
         onSignOut={signOut}
         C={C}
       />
 
-      {/* Sign-in modal (Clerk only) */}
-      {clerkEnabled && (
-        <ClerkSignInModal
-          visible={signInOpen}
-          onClose={() => setSignInOpen(false)}
-          C={DARK} // always dark for modal
-        />
-      )}
+      {/* Custom sign-in modal */}
+      <SignInModal visible={signInVisible} onClose={closeSignIn} C={C} />
     </View>
   );
 }
