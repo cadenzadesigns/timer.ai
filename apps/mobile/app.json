@@ -32,7 +32,8 @@
     "plugins": [
       "expo-av",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@clerk/expo"
     ],
     "extra": {
       "eas": {

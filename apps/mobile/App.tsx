@@ -1,13 +1,20 @@
+// Clerk's JS SDK checks navigator.onLine which is unreliable in React Native.
+// Force it to true so getToken() doesn't throw "clerk_offline".
+if (typeof globalThis.navigator !== 'undefined' && !globalThis.navigator.onLine) {
+  Object.defineProperty(globalThis.navigator, 'onLine', { get: () => true });
+}
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Dimensions, Platform, ActivityIndicator,
-  Modal, Animated, KeyboardAvoidingView, Alert,
+  Modal, Animated, KeyboardAvoidingView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import * as SecureStore from 'expo-secure-store';
-import { ClerkProvider, useAuth, useUser, useSignIn } from '@clerk/expo';
+import { ClerkProvider, useAuth, useUser } from '@clerk/expo';
+import { AuthView } from '@clerk/expo/native';
 import { tokenCache } from '@clerk/expo/token-cache';
 import { makeTimerConfig } from '@timer-ai/core';
 import type { TimerConfig, TimerPhase } from '@timer-ai/core';
@@ -167,7 +174,6 @@ function useClerkAuth() {
     isSignedIn: !!isSignedIn,
     userInfo,
     authLoading: !isLoaded,
-    signIn: async () => {}, // Handled by SignIn component, not imperative
     signOut,
     getConvexToken,
   };
@@ -327,196 +333,46 @@ function SettingsRow({ label, desc, children, C }: {
   );
 }
 
-// ─── Browser-Based Sign-In Modal ─────────────────────────────────────────────
-// Opens Clerk's hosted sign-in page via expo-web-browser; no ClerkProvider needed.
+// ─── Native Auth Modal ─────────────────────────────────────────────────────────
+// Wraps Clerk's native AuthView in a RN Modal. Auto-closes on successful auth.
 
-function ClerkSignInModal({ visible, onClose, C }: {
+function ClerkAuthModal({ visible, onClose, C }: {
   visible: boolean;
   onClose: () => void;
   C: Colors;
 }) {
-  const { signIn, setActive, isLoaded } = useSignIn();
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [pendingVerification, setPendingVerification] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { isSignedIn } = useAuth();
 
-  async function handleEmailSignIn() {
-    if (!signIn) {
-      setError('Clerk not ready');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      // Core 3 API: create() identifies the user, then use signIn.emailCode to send/verify
-      await signIn.create({ identifier: email });
-      
-      if (signIn.status === 'complete') {
-        if (setActive) await setActive({ session: signIn.createdSessionId });
-        onClose();
-        return;
-      }
-
-      // Core 3: use signIn.emailCode.sendCode() instead of prepareFirstFactor
-      await (signIn as any).emailCode.sendCode();
-      setPendingVerification(true);
-    } catch (e: any) {
-      const msg = e?.errors?.[0]?.longMessage ?? e?.errors?.[0]?.message ?? e?.message ?? 'Unknown error';
-      setError(msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleVerifyCode() {
-    if (!signIn) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Core 3: verify the code
-      await (signIn as any).emailCode.verifyCode({ code });
-      
-      // Core 3: finalize() creates the session — this is the critical step
-      if (signIn.status === 'complete') {
-        await (signIn as any).finalize({
-          navigate: () => {}, // No navigation in RN
-        });
-      }
-      
-      await new Promise(r => setTimeout(r, 500));
-      onClose();
-    } catch (e: any) {
-      setError(e?.errors?.[0]?.message ?? e?.message ?? 'Invalid code');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function handleClose() {
-    setEmail('');
-    setCode('');
-    setPendingVerification(false);
-    setError(null);
-    onClose();
-  }
+  // Auto-close when auth completes
+  useEffect(() => {
+    if (visible && isSignedIn) onClose();
+  }, [visible, isSignedIn, onClose]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <TouchableOpacity style={siS.backdrop} activeOpacity={1} onPress={handleClose} />
-      <View style={[siS.sheet, { backgroundColor: C.surface, borderColor: C.border2 }]}>
-        <View style={[siS.header, { borderBottomColor: C.border }]}>
-          <View style={[siS.headerAccent, { backgroundColor: C.accent }]} />
-          <Text style={[siS.title, { color: C.text2, fontFamily: C.mono }]}>SIGN IN</Text>
-          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={[siS.closeBtn, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <View style={cam.header}>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={[cam.closeBtn, { color: C.text4, fontFamily: C.mono }]}>✕</Text>
           </TouchableOpacity>
         </View>
-
-        <View style={siS.body}>
-          {error && (
-            <Text style={[siS.error, { color: '#FF6644', fontFamily: C.mono }]}>⚠ {error}</Text>
-          )}
-
-          {!pendingVerification ? (
-            <>
-              <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
-                Enter your email to sign in or create an account.
-              </Text>
-              <TextInput
-                style={[siS.input, { color: C.text, borderColor: C.border2, backgroundColor: C.surface2, fontFamily: C.mono }]}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="email@example.com"
-                placeholderTextColor={C.text4}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity
-                style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
-                onPress={handleEmailSignIn}
-                disabled={busy || !email.trim()}
-                activeOpacity={0.7}
-              >
-                {busy
-                  ? <ActivityIndicator size="small" color={C.accent} />
-                  : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>CONTINUE</Text>
-                }
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <Text style={[siS.tagline, { color: C.text4, fontFamily: C.mono }]}>
-                Enter the verification code sent to {email}
-              </Text>
-              <TextInput
-                style={[siS.input, { color: C.text, borderColor: C.border2, backgroundColor: C.surface2, fontFamily: C.mono }]}
-                value={code}
-                onChangeText={setCode}
-                placeholder="Verification code"
-                placeholderTextColor={C.text4}
-                keyboardType="number-pad"
-                autoFocus
-              />
-              <TouchableOpacity
-                style={[siS.oauthBtn, { borderColor: busy ? C.border : C.accent, backgroundColor: C.surface2 }]}
-                onPress={handleVerifyCode}
-                disabled={busy || !code.trim()}
-                activeOpacity={0.7}
-              >
-                {busy
-                  ? <ActivityIndicator size="small" color={C.accent} />
-                  : <Text style={[siS.oauthBtnText, { color: C.accent, fontFamily: C.mono }]}>VERIFY</Text>
-                }
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+        <AuthView mode="signInOrUp" isDismissable={false} />
       </View>
     </Modal>
   );
 }
 
-const siS = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 20, right: 20,
-    top: '30%',
-    borderWidth: 1,
-    elevation: 30,
-  },
+const cam = StyleSheet.create({
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    gap: 10,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    paddingBottom: 8,
   },
-  headerAccent: { width: 3, height: 16 },
-  title:   { flex: 1, fontSize: 13, fontWeight: '700', letterSpacing: 5 },
-  closeBtn:{ fontSize: 16 },
-  body:    { padding: 20, gap: 14 },
-  tagline: { fontSize: 12, letterSpacing: 0.5, lineHeight: 18, opacity: 0.8 },
-  error:   { fontSize: 12, letterSpacing: 0.3 },
-  oauthBtn: {
-    borderWidth: 1,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  oauthBtnText: { fontSize: 12, fontWeight: '700', letterSpacing: 2 },
-  input: {
-    borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    fontSize: 14,
-    letterSpacing: 0.5,
+  closeBtn: {
+    fontSize: 20,
+    fontWeight: '600',
   },
 });
 
@@ -1145,7 +1001,7 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
   const C = theme === 'dark' ? DARK : LIGHT;
 
   // Auth (browser-based Clerk flow — no ClerkProvider)
-  const { isSignedIn, userInfo, signIn, signOut, getConvexToken } = useClerkAuth();
+  const { isSignedIn, userInfo, signOut, getConvexToken } = useClerkAuth();
 
   // Config
   const [config, setConfig] = useState<TimerConfig>(DEFAULT_CONFIG);
@@ -1314,10 +1170,6 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
       />
 
       {/* Corner bracket decorations */}
-      <View style={[S.cornerTL, { borderTopColor: C.border2, borderLeftColor: C.border2 }]} />
-      <View style={[S.cornerTR, { borderTopColor: C.border2, borderRightColor: C.border2 }]} />
-      <View style={[S.cornerBL, { borderBottomColor: C.border2, borderLeftColor: C.border2 }]} />
-      <View style={[S.cornerBR, { borderBottomColor: C.border2, borderRightColor: C.border2 }]} />
 
       <KeyboardAvoidingView style={S.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
@@ -1518,7 +1370,7 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
                   style={[
                     S.timerNumber,
                     {
-                      color: (isComplete || (isRunning && phase !== 'IDLE')) ? phaseColor : C.text,
+                      color: (isComplete || isRunning) ? phaseColor : C.text,
                       fontFamily: C.mono,
                       transform: [{ scale: tickScale }],
                     },
@@ -1641,10 +1493,10 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
 
       {/* Sign-in modal (Clerk only) */}
       {clerkEnabled && (
-        <ClerkSignInModal
+        <ClerkAuthModal
           visible={signInOpen}
           onClose={() => setSignInOpen(false)}
-          C={DARK} // always dark for modal
+          C={C}
         />
       )}
     </View>
@@ -1653,9 +1505,6 @@ function AppContent({ clerkEnabled }: { clerkEnabled: boolean }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const CORNER_SIZE = 22;
-const CORNER_PAD  = 12;
-const CORNER_W    = 1.5;
 
 const S = StyleSheet.create({
   flex:         { flex: 1 },
@@ -1667,33 +1516,9 @@ const S = StyleSheet.create({
   },
 
   // Corner brackets
-  cornerTL: {
-    position: 'absolute', top: CORNER_PAD, left: CORNER_PAD,
-    width: CORNER_SIZE, height: CORNER_SIZE,
-    borderTopWidth: CORNER_W, borderLeftWidth: CORNER_W,
-    zIndex: 5,
-  },
-  cornerTR: {
-    position: 'absolute', top: CORNER_PAD, right: CORNER_PAD,
-    width: CORNER_SIZE, height: CORNER_SIZE,
-    borderTopWidth: CORNER_W, borderRightWidth: CORNER_W,
-    zIndex: 5,
-  },
-  cornerBL: {
-    position: 'absolute', bottom: CORNER_PAD, left: CORNER_PAD,
-    width: CORNER_SIZE, height: CORNER_SIZE,
-    borderBottomWidth: CORNER_W, borderLeftWidth: CORNER_W,
-    zIndex: 5,
-  },
-  cornerBR: {
-    position: 'absolute', bottom: CORNER_PAD, right: CORNER_PAD,
-    width: CORNER_SIZE, height: CORNER_SIZE,
-    borderBottomWidth: CORNER_W, borderRightWidth: CORNER_W,
-    zIndex: 5,
-  },
 
   scroll:        { flex: 1 },
-  scrollContent: { alignItems: 'center', paddingHorizontal: 20 },
+  scrollContent: { alignItems: 'center', paddingHorizontal: 20, paddingBottom: 100 },
 
   // Header
   header: {
